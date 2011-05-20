@@ -11,6 +11,11 @@
                          (:file "basecode-misc")
                          (:file "fps")
                          #++(:file "basecode-demo")))
+   (:module "spline"
+            :serial t
+            :components ((:file "package")
+                         (:file "quadratic")
+                         (:file "spline-demo")))
    (:module "ttf"
             :serial t
             :components
