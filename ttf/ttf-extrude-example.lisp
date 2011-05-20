@@ -25,6 +25,7 @@
   (gl:delete-vertex-arrays (vaos w)))
 
 (defmethod load-glyphs ((w ttf-tess-window))
+  (declare (optimize debug))
   (free-buffers w)
   (with-font-loader (loader (font-path w))
     ;; we pick some random characters from the font, up to the number
@@ -81,6 +82,7 @@
 (defparameter *tris* 0)
 
 (defmethod glut:display ((w ttf-tess-window))
+  (declare (optimize debug))
   (gl:clear-color 0.0 0.0 0.2 1.0)
   (gl:clear :color-buffer-bit :depth-buffer-bit)
 
@@ -88,18 +90,20 @@
   (let ((tris 0))
     (flet ((rx ()
             (gl:load-identity)
-
-            (gl:rotate (angle w) 1 1 0)
-            (gl:light :light0 :position (list 7 7 7 1.0))
+            (gl:with-pushed-matrix* (:modelview)
+              (gl:rotate (* 2 (angle w)) 0 0 1)
+              (gl:light :light0 :position (list  10 0 10 1.0)))
+#++            (gl:rotate (angle w) 1 1 0)
+            (gl:rotate 30 1 1 0)
 
             (gl:translate -1.3 -0.6 0)
             #++(gl:translate -0.8 -0.0 0)
             (gl:scale 0.2 0.2 0.1)
             ))
-     (gl:enable :line-smooth :point-smooth :blend :depth-test :lighting :light0)
+     (gl:enable :line-smooth :point-smooth :polygon-smooth :blend :depth-test :lighting :light0 :multisample)
      (gl:point-size 1)
      (gl:blend-func :src-alpha :one-minus-src-alpha)
-     (gl:disable :cull-face)
+     (gl:enable :cull-face)
      (gl:light :light0 :position (list 0.2 0.7 0.2 1.0))
      (gl:with-pushed-matrix* (:modelview)
        (rx)
@@ -116,13 +120,15 @@
 
           (gl:bind-vertex-array vao)
           (gl:color 1 0 0 1)
+            (gl:enable :lighting)
           (gl:polygon-mode :front-and-back :fill)
           (gl:draw-elements :triangles (gl:make-null-gl-array :unsigned-short) :count count)
-          (gl:color 0 0 1 0.5)
+          (gl:color 0 1 0 0.5)
+            (gl:disable :lighting)
           (gl:polygon-mode :front-and-back :line)
           (gl:draw-elements :triangles (gl:make-null-gl-array :unsigned-short) :count count)
-          #++(gl:color 0 1 0 0.4)
-          #++(gl:draw-elements :points (gl:make-null-gl-array :unsigned-short) :count count))))
+          (gl:color 0 1 0 0.4)
+          (gl:draw-elements :points (gl:make-null-gl-array :unsigned-short) :count count))))
     (setf *tris* tris))
 
   (glut:swap-buffers))
@@ -141,7 +147,7 @@
   (gl:load-identity))
 
 (defmethod glut:keyboard ((w ttf-tess-window) key x y)
-  (declare (ignore x y))
+  (declare (ignore x y) (optimize debug))
   (case key
     (#\Esc (glut:leave-main-loop))
     (#\space (load-glyphs w))))
@@ -160,3 +166,4 @@
       (glut:destroy-window (glut:id w)))))
 
 ;; (ttf-tess)
+
