@@ -21,6 +21,6 @@
             :components
             ((:file "package")
              (:file "extrude")
-             (:file "ttf-extrude-example2")))))
+             (:file "ttf-extrude-example")))))
 
 
