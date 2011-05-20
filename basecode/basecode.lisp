@@ -128,5 +128,4 @@
 
 
 (defmethod basecode-run ((w basecode-glut))
-  (glut:display-window w)
-)
+  (glut:display-window w))

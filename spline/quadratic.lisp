@@ -78,8 +78,7 @@ third value."
                 (and angle-tolerance-sin
                      (and (>= (sb-cga:dot-product ds de) 0)
                           (< (sb-cga:vec-length (sb-cga:cross-product ds de))
-                             (abs angle-tolerance-sin))))
-                ))
+                             (abs angle-tolerance-sin))))))
 
              (add-point (p pn pt)
                (vector-push-extend p results)
@@ -121,4 +120,3 @@ third value."
         (add-point start sn st)
         (subd start control end 0 sn en st et))
       (values results normals tangents))))
-

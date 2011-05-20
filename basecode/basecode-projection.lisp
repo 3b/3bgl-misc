@@ -41,8 +41,7 @@
    (projection-far :initform 100.0
                    :accessor projection-far :initarg :projection-far)
    (projection-fov :initform 45
-                   :reader projection-fov :initarg :projection-fov)
-   ))
+                   :reader projection-fov :initarg :projection-fov)))
 
 (defmethod (setf projection-fov) (new (w perspective-projection))
   (setf (slot-value w 'projection-fov) new)
@@ -53,8 +52,7 @@
   (glu:perspective (/ (projection-fov w) (aspect w)) (aspect w)
                    (projection-near w) (projection-far w))
   (gl:matrix-mode :modelview)
-  new
-  )
+  new)
 
 (defmethod basecode-reshape :before ((w perspective-projection))
   (gl:matrix-mode :projection)

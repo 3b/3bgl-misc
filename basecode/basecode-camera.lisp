@@ -24,8 +24,10 @@
 (defclass freelook-camera ()
   ;; probably should store orientation as a quaternion or 3x3 matrix
   ;; instead of a full 4x4...
-  ((freelook-camera-orientation :accessor freelook-camera-orientation :initform (sb-cga:identity-matrix))
-   (freelook-camera-position :accessor freelook-camera-position :initform (sb-cga:vec 0.0 0.0 0.0))
+  ((freelook-camera-orientation :accessor freelook-camera-orientation
+                                :initform (sb-cga:identity-matrix))
+   (freelook-camera-position :accessor freelook-camera-position
+                             :initform (sb-cga:vec 0.0 0.0 0.0))
    (freelook-camera-offset :accessor freelook-camera-offset :initform -0.6)
 
    (freelook-camera-move-state :accessor freelook-camera-move-state
@@ -39,17 +41,15 @@
    (freelook-camera-dragging :accessor freelook-camera-dragging :initform nil)
    (freelook-camera-last-mx :accessor freelook-camera-last-mx :initform 0)
    (freelook-camera-last-my :accessor freelook-camera-last-my :initform 0)
-   (freelook-camera-mouselook-up :accessor freelook-camera-mouselook-up :initform (sb-cga:vec 0.0 1.0 0.0))
+   (freelook-camera-mouselook-up :accessor freelook-camera-mouselook-up
+                                 :initform (sb-cga:vec 0.0 1.0 0.0))
    ;; default to initial view matching a 'look at' camera
    (look-at-eye :initform '(1 1 1) :initarg :look-at-eye :accessor look-at-eye)
    (look-at-target :initform '(0 0 0) :initarg :look-at-target
                    :accessor look-at-target)
-   (look-at-up :initform '(0 1 0) :initarg :look-at-up :accessor look-at-up)
-   ))
+   (look-at-up :initform '(0 1 0) :initarg :look-at-up :accessor look-at-up)))
 
 (defun reset-freelook-camera (w)
-  (format t "reset freelook camera~%")
-  (format t "matrix was ~s~%" (freelook-camera-orientation w))
   (setf (freelook-camera-move-state w) (make-hash-table))
   ;; fixme: remember any initarg default speed
   (setf (freelook-camera-move-speed w) 8)
@@ -65,18 +65,15 @@
            (y (sb-cga:cross-product x z)))
       (setf (freelook-camera-position w) (sb-cga:vec- (sb-cga:vec 0.0 0.0 0.0)
                                                       eye))
-      #++(setf (freelook-camera-position w) (sb-cga:vec 0.0 0.0 2.0))
       (setf (freelook-camera-orientation w)
-            #++(sb-cga:identity-matrix)
             (sb-cga:matrix (aref x 0) (aref y 0) (aref z 0) 0.0
                            (aref x 1) (aref y 1) (aref z 1) 0.0
                            (aref x 2) (aref y 2) (aref z 2) 0.0
-                           0.0 0.0 0.0 1.0
-                           )))))
+                           0.0 0.0 0.0 1.0)))))
 
-(defmethod shared-initialize :after ((i freelook-camera) slot-names &rest initargs &key)
+(defmethod shared-initialize :after ((i freelook-camera) slot-names
+                                     &rest initargs &key)
   (declare (ignorable slot-names initargs))
-  (format t "shared-initialize~%")
   (reset-freelook-camera i))
 
 (defun update-freelook-camera (w)
@@ -100,14 +97,12 @@
                                      (* dt rate
                                         (freelook-camera-move-speed w)))))
                  v))
-            (axis-rot (rate axis)
-              (if (zerop rate)
-                  nil
-                  (sb-cga:rotate-around #++(sb-cga:transform-direction
-                                            axis (freelook-camera-orientation w))
-                                        axis
-                                        (* dt rate
-                                           (freelook-camera-move-speed w)))))
+             (axis-rot (rate axis)
+               (if (zerop rate)
+                   nil
+                   (sb-cga:rotate-around axis
+                                         (* dt rate
+                                            (freelook-camera-move-speed w)))))
              (orthogonalize-rotation (m)
                (let* ((x (sb-cga:normalize
                           (sb-cga:vec (aref m 0) (aref m 1) (aref m 2))))
@@ -118,65 +113,60 @@
                                 (aref x 1) (aref y 1) (aref z 1) 0.0
                                 (aref x 2) (aref y 2) (aref z 2) 0.0
                                 0.0 0.0 0.0 1.0))))
-     (let* ((forward (axis (move-dir :forward :backward)
-                           localz))
-            (strafe (sb-cga:vec+
-                     (axis (move-dir :strafe-left :strafe-right)
-                           localx)
-                     (axis (move-dir :strafe-down :strafe-up)
-                           localy)))
-            (turn (axis-rot (move-dir :turn-left :turn-right)
-                            (sb-cga:vec 0.0 1.0 0.0)))
-            (mx (- (first (mouse-position w)) (freelook-camera-last-mx w)))
-            (my (- (second (mouse-position w)) (freelook-camera-last-my w)))
-            (mouse-turn (or turn (sb-cga:identity-matrix))))
-       (when (freelook-camera-dragging w)
-         (when (not (zerop mx))
-          (setf mouse-turn
-                (sb-cga:matrix* mouse-turn
-                                (sb-cga:rotate-around
-                                 #++ localy
-                                 (sb-cga:vec 0.0 1.0 0.0)
-                                 (float (* mx 2 (* 75 (/ pi 180 1000))) 1.0)))))
-         (when (not (zerop my))
-           (setf mouse-turn
+      (let* ((forward (axis (move-dir :forward :backward)
+                            localz))
+             (strafe (sb-cga:vec+
+                      (axis (move-dir :strafe-left :strafe-right)
+                            localx)
+                      (axis (move-dir :strafe-down :strafe-up)
+                            localy)))
+             (turn (axis-rot (move-dir :turn-left :turn-right)
+                             (sb-cga:vec 0.0 1.0 0.0)))
+             (mx (- (first (mouse-position w)) (freelook-camera-last-mx w)))
+             (my (- (second (mouse-position w)) (freelook-camera-last-my w)))
+             (mouse-turn (or turn (sb-cga:identity-matrix))))
+        (when (freelook-camera-dragging w)
+          (when (not (zerop mx))
+            (setf mouse-turn
+                  (sb-cga:matrix* mouse-turn
+                                  (sb-cga:rotate-around
+                                   (sb-cga:vec 0.0 1.0 0.0)
+                                   (float (* mx 2 (* 75 (/ pi 180 1000))) 1.0)))))
+          (when (not (zerop my))
+            (setf mouse-turn
+                  (sb-cga:matrix* mouse-turn
+                                  (sb-cga:rotate-around
+                                   localx
+                                   (float (* my 2 (* 75 (/ pi 180 1000))) 1.0)
+                                   )))))
+        (setf (freelook-camera-last-mx w) (first (mouse-position w))
+              (freelook-camera-last-my w) (second (mouse-position w)))
+        (setf (freelook-camera-position w)
+              (sb-cga:vec+ (freelook-camera-position w)
+                           (sb-cga:vec+ forward strafe)))
+        (when (or turn (and (freelook-camera-dragging w)
+                            (or (not (zerop mx))
+                                (not (zerop my)))))
+          (setf (freelook-camera-orientation w)
+                (orthogonalize-rotation
                  (sb-cga:matrix* mouse-turn
-                                 (sb-cga:rotate-around
-                                  localx
-                                  (float (* my 2 (* 75 (/ pi 180 1000))) 1.0)
-)))))
-       (setf (freelook-camera-last-mx w) (first (mouse-position w))
-             (freelook-camera-last-my w) (second (mouse-position w)))
-       (setf (freelook-camera-position w)
-             (sb-cga:vec+ (freelook-camera-position w)
-                          (sb-cga:vec+ forward strafe)))
-       (when (or turn (and (freelook-camera-dragging w)
-                           (or (not (zerop mx))
-                               (not (zerop my)))))
-         (setf (freelook-camera-orientation w)
-               (orthogonalize-rotation
-                (sb-cga:matrix* mouse-turn
-                                (freelook-camera-orientation w) ))))
-       )))
-)
+                                 (freelook-camera-orientation w)))))))))
+
 (defmethod basecode-draw :before ((w freelook-camera))
   (update-freelook-camera w)
   (gl:matrix-mode :modelview)
   (gl:load-identity)
-  #++(glu:look-at 2 2 2 0 0 0 0 1 0)
   (let ((pos (freelook-camera-position w))
         (mat (freelook-camera-orientation w)))
     (gl:translate 0.0 0.0 (- (freelook-camera-offset w)))
     (gl:mult-matrix (sb-cga:transpose-matrix mat))
     (gl:translate (aref pos 0)
                   (aref pos 1)
-                  (aref pos 2)))
-)
+                  (aref pos 2))))
 
 (defmethod glut:keyboard :before ((w freelook-camera) key x y)
   (case key
     (#\backspace
-     (format t "reset~%")
      (reset-freelook-camera w))
     ((#\w \W)
      (incf (gethash :forward (freelook-camera-move-state w) 0)))
@@ -239,32 +229,22 @@
 
 (defmethod glut:mouse :before ((w freelook-camera) button state x y)
   (when (eql button :right-button)
-    (format t "drag ~s ~s = ~s~%" button state  (eql state :down))
     (setf (freelook-camera-last-mx w) x
           (freelook-camera-last-my w) y
           (freelook-camera-dragging w) (eql state :down)
           (freelook-camera-mouselook-up w) (sb-cga:transform-direction
                                             (sb-cga:vec 0.0 1.0 0.0)
                                             (freelook-camera-orientation w))))
-    (format t "button ~s ~s~%" button state)
-    (format t "~s, ~s, ~s~%"(gl:get* :samples)
-            (gl:get* :max-samples)
-            (gl:get* :sample-buffers))
     (when (and (eql button :button5) (eql state :down))
-      (incf (projection-fov w) 5)
-      (format t "fov -> ~s~%" (projection-fov w)))
+      (incf (projection-fov w) 5))
     (when (and (eql button :button4) (eql state :down))
-      (decf (projection-fov w) 5)
-      (format t "fov -> ~s~%" (projection-fov w)))
+      (decf (projection-fov w) 5))
     (when (and (eql button :wheel-up) (eql state :down))
       (setf (freelook-camera-move-speed w)
-            (* (freelook-camera-move-speed w) 1.1))
-      (format t "move speed -> ~s~%"  (freelook-camera-move-speed w)))
+            (* (freelook-camera-move-speed w) 1.1)))
     (when (and (eql button :wheel-down) (eql state :down))
       (setf (freelook-camera-move-speed w)
-            (* (freelook-camera-move-speed w) 0.9))
-      (format t "move speed -> ~s~%"  (freelook-camera-move-speed w)))
-)
+            (* (freelook-camera-move-speed w) 0.9))))
 
 
 

@@ -1,6 +1,6 @@
 ;;;; -*- Mode: lisp; indent-tabs-mode: nil -*-
-;;; ttf-tess.lisp --- Render 3d characters using zpb-ttf and glu-tess,
-;;; with geometry drawn through VBO/VAO
+;;; Render 3d characters using zpb-ttf and glu-tess, with geometry
+;;; drawn through VBO/VAO
 
 (defpackage #:glu-ttf-extrude-example
   (:use :cl :glu-ttf-extrude :zpb-ttf :alexandria :basecode)
@@ -29,43 +29,27 @@
 (defmethod load-glyphs ((w ttf-tess-window))
   (declare (optimize debug))
   (free-buffers w)
-  (let ((s #++ 465229856934636009
-           (random most-positive-fixnum)))
+  (let ((s (random most-positive-fixnum)))
     (format t "seed = ~s~%" s)
     (setf *random-state* (sb-ext:seed-random-state s)))
-  (with-font-loader (loader #++"/usr/share/fonts/truetype/kochi/kochi-mincho.ttf"
-                            #++"/usr/share/fonts/truetype/msttcorefonts/Times_New_Roman.ttf"
-                            (font-path w))
+  (with-font-loader (loader (font-path w))
     ;; we pick some random characters from the font, up to the number
     ;; specified in the class instance, or the number available
     ;; whichever is lower
     (let* ((c (min (glyph-count loader)
-                   216 #++(mesh-count w)))
+                   (mesh-count w)))
            ;; select C glyphs at random (not very efficiently, but
            ;; we only need to do it once...)
-           (glyphs #++(mapcar (lambda (i)
-                             (index-glyph i loader))
-                           #++(make-list c :initial-element 1187)
-                           (subseq (shuffle (iota (glyph-count loader)))
-                                   0 c))
-                   (loop for i in (shuffle (iota (glyph-count loader)))
+           (glyphs (loop for i in (shuffle (iota (glyph-count loader)))
                       for g = (index-glyph i loader)
                       when (plusp (code-point g))
                       collect g
                       and count 1 into count
-                      while (< count c))
-)
+                      while (< count c)))
            ;; for each character, we want 2 VBOs and a VAO
            (buffers (gl:gen-buffers (* c 2)))
            (vaos (gl:gen-vertex-arrays c))
            (counts (make-array c :initial-element 0)))
-      #++(setf (first glyphs) (index-glyph 893 loader))
-      #++(setf (second glyphs) (index-glyph 599 loader))
-      #++(setf (second glyphs) (find-glyph #\) loader))
-      #++(setf (third glyphs) (index-glyph 601 loader))
-      #++(setf (fourth glyphs) (index-glyph 606 loader))
-      #++(setf (fifth glyphs) (index-glyph 600 loader))
-      #++(setf (sixth glyphs) (index-glyph 1312 loader))
       (setf (vbos w) buffers
             (vaos w) vaos
             (counts w) counts)
@@ -80,12 +64,7 @@
          do
          ;; and build the VBOs and VAO
            (setf (aref (counts w) i)
-                 (fill-buffers extruded vb ib va))
-           )
-
-)
-)
-  )
+                 (fill-buffers extruded vb ib va))))))
 
 (defmethod basecode-init ((w ttf-tess-window))
   (declare (optimize debug))
@@ -93,7 +72,6 @@
   (load-glyphs w))
 
 (defmethod glut:tick ((w ttf-tess-window))
-
   (glut:post-redisplay))
 
 (defparameter *tris* 0)
@@ -105,27 +83,18 @@
           (/ (* 2 pi) (* 5 seconds-per-revolution))))
 
   (gl:clear-color 0.0 0.0 0.2 1.0)
-  #++  (gl:clear :color-buffer-bit :depth-buffer-bit)
 
   (gl:with-pushed-matrix* (:modelview)
     (let ((tris 0))
       (flet ((rx ()
                (gl:with-pushed-matrix* (:modelview)
                  (gl:rotate (* 2 (angle w)) 0 0 1)
-                 (gl:light :light0 :position (list  10 0 10 1.0)))
-               #++            (gl:rotate (angle w) 1 1 0)
-               #++(gl:rotate 30 1 1 0)
-
-               #++(gl:translate -1.3 -0.6 0)
-               #++(gl:translate -0.8 -0.0 0)
-               #++(gl:scale 0.2 0.2 0.1)
-               ))
-        (gl:enable :line-smooth :point-smooth :polygon-smooth :blend :depth-test :lighting :light0 :multisample)
+                 (gl:light :light0 :position (list  10 0 10 1.0)))))
+        (gl:enable :line-smooth :point-smooth :polygon-smooth :blend
+                   :depth-test :lighting :light0 :multisample)
         (gl:point-size 1)
         (gl:blend-func :src-alpha :one-minus-src-alpha)
         (gl:enable :cull-face)
-        #++(gl:disable :cull-face)
-        #++(gl:light-model :light-model-two-side :true)
         (gl:light :light0 :position (list 0.2 0.7 0.2 1.0))
         (gl:with-pushed-matrix* (:modelview)
           (rx)
@@ -164,10 +133,8 @@
                        (gl:color 1 0 0 1)
                        (gl:enable :lighting)
                        (gl:polygon-mode :front-and-back :fill)
-                       (gl:draw-elements :triangles (gl:make-null-gl-array :unsigned-short) :count count)))
-))))
-      (setf *tris* tris)))
-)
+                       (gl:draw-elements :triangles (gl:make-null-gl-array :unsigned-short) :count count)))))))
+      (setf *tris* tris))))
 
 
 (defmethod glut:keyboard :after ((w ttf-tess-window) key x y)
@@ -180,11 +147,9 @@
   (free-buffers w))
 
 (defun ttf-tess ()
-  (format t "blah!")
   (let ((w (make-instance 'ttf-tess-window
                           :font-path
-                          "/usr/share/fonts/truetype/msttcorefonts/Georgia.ttf"
-                          #++"/usr/share/fonts/truetype/msttcorefonts/Arial.ttf")))
+                          "/usr/share/fonts/truetype/msttcorefonts/Georgia.ttf")))
     (unwind-protect
 	 (basecode-run w)
       (glut:destroy-window (glut:id w)))))
