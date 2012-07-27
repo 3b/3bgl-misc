@@ -23,10 +23,10 @@
              (list
               (apply 'sb-cga:vec
                      (loop for i below 3
-                        collect (float (gl:glaref a i) 1.0)))
+                        collect (float (elt a i) 1.0)))
               (apply 'sb-cga:vec
                      (loop for i from 3 below 6
-                        collect (float (gl:glaref a i) 1.0)))))
+                        collect (float (elt a i) 1.0)))))
            (tri (p1 p2 p3 n)
              (vector-push-extend (list p1 n) (triangles tess))
              (vector-push-extend (list p3 n) (triangles tess))
@@ -94,21 +94,30 @@
   (gl:with-gl-array (arr :float :count (* 6 (length (triangles tess))))
     (loop for (v n) across (triangles tess)
        for i from 0 by 6
-       do (setf (gl:glaref arr (+ i 0)) (aref v 0)
+       do #++(setf (gl:glaref arr (+ i 0)) (aref v 0)
                 (gl:glaref arr (+ i 1)) (aref v 1)
                 (gl:glaref arr (+ i 2)) (aref v 2)
                 (gl:glaref arr (+ i 3)) (aref n 0)
                 (gl:glaref arr (+ i 4)) (aref n 1)
                 (gl:glaref arr (+ i 5)) (aref n 2))
+          (setf (cffi:mem-aref (gl::gl-array-pointer arr) :float (+ i 0)) (aref v 0)
+                (cffi:mem-aref (gl::gl-array-pointer arr) :float (+ i 1)) (aref v 1)
+                (cffi:mem-aref (gl::gl-array-pointer arr) :float (+ i 2)) (aref v 2)
+                (cffi:mem-aref (gl::gl-array-pointer arr) :float (+ i 3)) (aref n 0)
+                (cffi:mem-aref (gl::gl-array-pointer arr) :float (+ i 4)) (aref n 1)
+                (cffi:mem-aref (gl::gl-array-pointer arr) :float (+ i 5)) (aref n 2))
          (incf *verts*))
     (incf *glyphs*)
-    (gl:buffer-data :array-buffer :static-draw arr))
+    (gl:buffer-data :array-buffer :static-draw arr)
+    nil)
 
   (gl:bind-buffer :element-array-buffer index-vbo)
   (gl:with-gl-array (arr :unsigned-short :count (length (triangles tess)))
     (loop for foo across (triangles tess)
        for i from 0
-       do (setf (gl:glaref arr i) i))
+       do (setf #++(gl:glaref arr i)
+                (cffi:mem-aref (gl::gl-array-pointer arr) :unsigned-short i)
+                i))
     (gl:buffer-data :element-array-buffer :static-draw arr))
 
   ;; just set up 'position' for now
@@ -218,6 +227,8 @@ and indicated when current segment is the last one"
                     (subdivide s c e smooth)
                     (unless nil (v e (list 0.0 0.0))))
                 (setf first nil)))))))
+    ;; fixme: just return the geometry, not the deleted tesselator
+    (glu:tess-delete tess)
     tess))
 
 

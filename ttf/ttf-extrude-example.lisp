@@ -139,9 +139,10 @@
 
 (defmethod glut:keyboard :after ((w ttf-tess-window) key x y)
   (declare (ignore x y) (optimize debug))
-  (case key
-    (#\1 (setf (wireframe w) (not (wireframe w))))
-    (#\space (load-glyphs w))))
+  (with-simple-restart (continue "Continue")
+    (case key
+      (#\1 (setf (wireframe w) (not (wireframe w))))
+      (#\space (time (load-glyphs w))))))
 
 (defmethod glut:close :before ((w ttf-tess-window))
   (free-buffers w))

@@ -23,16 +23,31 @@
 ;; pixels, with 0,0,0 at center of screen)
 (defclass ortho-projection-pixel ()
   ((ortho-projection-scale :initform 1.0 :initarg ortho-projection-scale
-                           :accessor ortho-projection-scale)))
+                           :accessor ortho-projection-scale)
+   (ortho-projection-origin :initform :center :initarg :ortho-projection-origin
+                            :accessor ortho-projection-origin)))
 
 (defmethod basecode-reshape :before ((w ortho-projection-pixel))
   (gl:matrix-mode :projection)
   (gl:load-identity)
-  (let ((right (/ (width w)
-                  (* (ortho-projection-scale w) 2)))
-        (top (/ (height w)
-                (* (ortho-projection-scale w) 2))))
-    (glu:ortho-2d (- right) right (- top) top))
+  (case (ortho-projection-origin w)
+    (:lower-left
+     (glu:ortho-2d 0 (width w) 0 (height w)))
+    (:upper-left
+     (glu:ortho-2d 0 (width w) (height w) 0))
+    ;; not really expecting these to be used, but might as well be there
+    ;; in case someone tries...
+    (:lower-right
+     (glu:ortho-2d (width w) 0 0 (height w)))
+    (:upper-right
+     (glu:ortho-2d (width w) 0 (height w) 0))
+    ;; :center by default
+    (t
+     (let ((right (/ (width w)
+                     (* (ortho-projection-scale w) 2)))
+           (top (/ (height w)
+                   (* (ortho-projection-scale w) 2))))
+       (glu:ortho-2d (- right) right (- top) top))))
   (gl:matrix-mode :modelview))
 
 (defclass perspective-projection ()

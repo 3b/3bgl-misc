@@ -97,10 +97,11 @@
              do (v i)))))))
 
 (defclass spline-demo (basecode-glut perspective-projection basecode-clear
-                                     fps-graph basecode-draw-ground-plane
-                                     freelook-camera)
+                       fps-graph basecode-draw-ground-plane
+                       freelook-camera
+                       basecode-exit-on-esc)
   ((splines :accessor splines :initform (loop for i below 100
-                                           collect (make-spline)))
+                                              collect (make-spline)))
    (animate :initform nil :accessor animate))
   (:default-initargs :look-at-eye '(3 2 15)))
 
@@ -115,9 +116,10 @@
            (setf (p1 i) (sb-cga:vec+ (p1 i) (random-vec 0.05)))
            (setf (p2 i) (sb-cga:vec+ (p2 i) (random-vec 0.05)))))))
 
-(defmethod glut:keyboard :after ((w spline-demo) k x y)
-  (when (eql k #\m)
-    (setf (animate w) (not (animate w)))))
+(defmethod key-down :after ((w spline-demo) k)
+  (case k
+    ((#\m :m)
+     (setf (animate w) (not (animate w))))))
 
 
 
@@ -125,9 +127,9 @@
 
 
 
-(defclass spline-demo2 (basecode-glut perspective-projection basecode-clear
-                                      fps-graph basecode-draw-ground-plane
-                                      freelook-camera)
+(defclass spline-demo2 (basecode-glop perspective-projection basecode-clear
+                        fps-graph basecode-draw-ground-plane
+                        freelook-camera basecode-exit-on-esc)
   ((points :accessor points
            :initform (coerce (loop for i below 100
                                 collect (random-vec 15))

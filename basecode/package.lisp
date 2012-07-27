@@ -13,6 +13,7 @@
            #:basecode-key-state
            #:basecode-button-state
            #:basecode-glut
+           #:basecode-glop
            #:basecode-run
            #:fps-graph
            #:basecode-clear
@@ -21,4 +22,10 @@
            #:perspective-projection
            #:ortho-projection-fixed
            #:basecode-look-at
-           #:freelook-camera))
+           #:freelook-camera
+           #:ortho-projection-pixel
+           #:key-down
+           #:key-up
+           #:mouse-down
+           #:mouse-up
+           #:basecode-exit-on-esc))
