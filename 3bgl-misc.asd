@@ -20,7 +20,11 @@
             :components ((:file "package")
                          (:file "quadratic")
                          (:file "spline-demo")))
-   (:module "ttf"
+   (:module "bench"
+    :serial t
+    :components ((:file "package")
+                 (:file "bench")))
+   #++(:module "ttf"
             :serial t
             :components
             ((:file "package")
