@@ -26,6 +26,12 @@
                 c *points* s (floor (/ *points* s)))
         (setf *start-time* 0)))))
 
+
+;;; cffi enums are slow :/
+(%gl::defglfun ("glBegin" %gl::begini) :void
+  (mode %gl::uint))
+
+
 (defmethod basecode-draw ((w im-bench))
   (declare (optimize speed))
   (let* ((start (get-internal-real-time))

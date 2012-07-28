@@ -34,6 +34,10 @@
                          (:file "glsl420")
                          (:file "printer")
                          (:file "compiler")))
+   (:module "model-viewer"
+    :serial t
+    :components ((:file "package")
+                 (:file "viewer")))
    (:module "bench"
     :serial t
     :components ((:file "package")
