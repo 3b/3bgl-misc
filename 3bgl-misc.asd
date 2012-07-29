@@ -20,6 +20,13 @@
             :components ((:file "package")
                          (:file "quadratic")
                          (:file "spline-demo")))
+   (:module "shader"
+            :serial t
+            :components ((:file "package")
+                         (:file "walker")
+                         (:file "printer")
+                         (:file "glsl-base")
+                         (:file "compiler")))
    (:module "bench"
     :serial t
     :components ((:file "package")
