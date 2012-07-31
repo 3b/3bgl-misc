@@ -23,6 +23,7 @@
    (:module "shader"
             :serial t
             :components ((:file "package")
+                         (:file "ir")
                          (:file "walker")
                          (:file "printer")
                          (:file "glsl-base")
