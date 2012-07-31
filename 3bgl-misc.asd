@@ -25,8 +25,9 @@
             :components ((:file "package")
                          (:file "ir")
                          (:file "walker")
-                         (:file "printer")
                          (:file "glsl-base")
+                         (:file "types")
+                         (:file "printer")
                          (:file "compiler")))
    (:module "bench"
     :serial t
