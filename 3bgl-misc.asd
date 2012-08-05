@@ -27,6 +27,7 @@
                          (:file "walker")
                          (:file "glsl-base")
                          (:file "types")
+                         (:file "glsl420")
                          (:file "printer")
                          (:file "compiler")))
    (:module "bench"
