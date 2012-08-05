@@ -104,7 +104,7 @@
   (declare (optimize debug))
   (with-continue-restart
     (basecode-init bw))
-  (%gl::with-context ()
+  (let ((%gl::*in-begin* nil))
     (glop:with-window (gw (title bw) (width bw) (height bw)
                          :win-class '%basecode-glop-window)
      (setf (%basecode-window gw) bw)
