@@ -5,7 +5,7 @@
 ;; fixed size ortho projection (ORTHO-PROJECTION-SCALE unit square
 ;; centered at 0,0,0 is scaled to fit in view area)
 (defclass ortho-projection-fixed ()
-  ((ortho-projection-scale :initform 1.0 :initarg ortho-projection-scale
+  ((ortho-projection-scale :initform 1.0 :initarg :ortho-projection-scale
                            :accessor ortho-projection-scale)))
 
 (defmethod basecode-reshape :before ((w ortho-projection-fixed))
