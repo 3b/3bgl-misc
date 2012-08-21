@@ -47,7 +47,9 @@
         (bw (%basecode-window w)))
     (gl:viewport 0 0 width height)
     (setf (slot-value bw '%width) width
+          (slot-value bw 'width) width
           (slot-value bw '%height) height
+          (slot-value bw 'height) height
           (slot-value bw '%aspect) (float (/ width height) 1.0))
     (with-continue-restart (basecode-reshape bw))))
 
