@@ -70,7 +70,9 @@
                           (event glop:mouse-motion-event))
   (declare (optimize debug))
   (setf (slot-value (%basecode-window w) '%mouse-position)
-        (list (glop:x event) (glop:y event))))
+        (list (glop:x event) (glop:y event)))
+  (apply #'mouse-move (%basecode-window w)
+         (slot-value (%basecode-window w) '%mouse-position)))
 
 (defmethod glop:on-event ((w %basecode-glop-window)
                           (event glop:button-press-event))

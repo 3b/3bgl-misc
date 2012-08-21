@@ -55,6 +55,8 @@
   (:method (w button x y)))
 (defgeneric mouse-up (w button x y)
   (:method (w button x y)))
+(defgeneric mouse-move (w x y)
+  (:method (w x y)))
 
 
 
