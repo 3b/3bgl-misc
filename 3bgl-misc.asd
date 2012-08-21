@@ -15,6 +15,10 @@
                          (:file "basecode-exit-on-esc")
                          (:file "fps")
                          #++(:file "basecode-demo")))
+   (:module "geometry"
+            :serial t
+            :components ((:file "package")
+                         (:file "bounding-sphere")))
    (:module "spline"
             :serial t
             :components ((:file "package")
