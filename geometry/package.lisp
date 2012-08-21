@@ -1,2 +1,4 @@
 (defpackage #:3bgl-geometry
-  (:use :cl))
+  (:use :cl)
+  (:export
+   #:bounding-sphere))

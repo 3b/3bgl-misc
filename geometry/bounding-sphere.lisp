@@ -203,11 +203,16 @@
 ;; 'fast and robust smallest enclosing balls', gaertner 99
 ;; with additional early exit for faster approximation within
 ;; specified tolerance
-(defun mtf-pivot (points &key (max-error 0.0))
+(defun bounding-sphere (points &key (max-error 0.0) (destructive nil))
+  "Generate bounding sphere for a vector of SB-CGA:VECs in POINTS, with
+ maximum error of MAX-ERROR (relative to radius of sphere)
+ Modifies POINTS in place if DESTRUCTIVE is T.
+ Returns radius and center of bounding sphere as multiple values"
   (declare (optimize speed))
   (declare ((simple-array sb-cga:vec (*)) points))
   (let ((tmp (sb-cga:vec 0.0 0.0 0.0))
-        (max-error (float max-error 0.0)))
+        (max-error (float max-error 0.0))
+        (points (if destructive points (copy-seq points))))
     (declare (dynamic-extent tmp)
              (sb-cga:vec tmp))
     (labels ((d^2 (p)
@@ -230,14 +235,14 @@
                   when (> d d-best)
                     do (setf best j d-best d)
                   finally (when (or (not best) (<= d-best r^2))
-                            (return-from mtf-pivot
+                            (return-from bounding-sphere
                               (values (sqrt r^2) c)))
                           (return (list best d-best)))
             do
                (let ((r (sqrt r^2))
                      (d (sqrt d-best)))
                  (when (< (- d r) (* d max-error))
-                   (return-from mtf-pivot
+                   (return-from bounding-sphere
                      (values d c))))
                ;; since we have vector of points instead of lists, optimize
                ;; move-to-front a bit by swapping with something closer
