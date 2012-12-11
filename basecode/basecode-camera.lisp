@@ -43,6 +43,13 @@
    (freelook-camera-last-my :accessor freelook-camera-last-my :initform 0)
    (freelook-camera-mouselook-up :accessor freelook-camera-mouselook-up
                                  :initform (sb-cga:vec 0.0 1.0 0.0))
+   ;; modelview matrix, updated in :before method on DRAW
+   ;; (for apps using shaders instead of fixed function)
+   ;; probably should factor stuff out and have a separate mixin that
+   ;;   uses modelview slot to update fixed function modelview?
+   (freelook-camera-modelview :accessor freelook-camera-modelview
+                              :initform (sb-cga:identity-matrix))
+
    ;; default to initial view matching a 'look at' camera
    (look-at-eye :initform '(1 1 1) :initarg :look-at-eye :accessor look-at-eye)
    (look-at-target :initform '(0 0 0) :initarg :look-at-target
@@ -60,15 +67,15 @@
     (let* ((eye (v (look-at-eye w)))
            (target (v (look-at-target w)))
            (up (v (look-at-up w)))
-           (z (sb-cga:normalize (sb-cga:vec- eye target)))
+           (z (sb-cga:normalize (sb-cga:vec- target eye)))
            (x (sb-cga:normalize (sb-cga:cross-product z up)) )
            (y (sb-cga:cross-product x z)))
       (setf (freelook-camera-position w) (sb-cga:vec- (sb-cga:vec 0.0 0.0 0.0)
                                                       eye))
       (setf (freelook-camera-orientation w)
-            (sb-cga:matrix (aref x 0) (aref y 0) (aref z 0) 0.0
-                           (aref x 1) (aref y 1) (aref z 1) 0.0
-                           (aref x 2) (aref y 2) (aref z 2) 0.0
+            (sb-cga:matrix (aref x 0) (aref y 0) (- (aref z 0)) 0.0
+                           (aref x 1) (aref y 1) (- (aref z 1)) 0.0
+                           (aref x 2) (aref y 2) (- (aref z 2)) 0.0
                            0.0 0.0 0.0 1.0)))))
 
 (defmethod shared-initialize :after ((i freelook-camera) slot-names
@@ -108,7 +115,7 @@
                           (sb-cga:vec (aref m 0) (aref m 1) (aref m 2))))
                       (y (sb-cga:normalize
                           (sb-cga:vec (aref m 4) (aref m 5) (aref m 6))))
-                      (z (sb-cga:cross-product y x)))
+                      (z (sb-cga:cross-product x y)))
                  (sb-cga:matrix (aref x 0) (aref y 0) (aref z 0) 0.0
                                 (aref x 1) (aref y 1) (aref z 1) 0.0
                                 (aref x 2) (aref y 2) (aref z 2) 0.0
@@ -131,13 +138,13 @@
                   (sb-cga:matrix* mouse-turn
                                   (sb-cga:rotate-around
                                    (sb-cga:vec 0.0 1.0 0.0)
-                                   (float (* mx 2 (* 75 (/ pi 180 1000))) 1.0)))))
+                                   (float (* mx 2 (* -75 (/ pi 180 1000))) 1.0)))))
           (when (not (zerop my))
             (setf mouse-turn
                   (sb-cga:matrix* mouse-turn
                                   (sb-cga:rotate-around
                                    localx
-                                   (float (* my 2 (* 75 (/ pi 180 1000))) 1.0)
+                                   (float (* my 2 (* -75 (/ pi 180 1000))) 1.0)
                                    )))))
         (setf (freelook-camera-last-mx w) (first (mouse-position w))
               (freelook-camera-last-my w) (second (mouse-position w)))
@@ -158,9 +165,16 @@
   (gl:load-identity)
   (let ((pos (freelook-camera-position w))
         (mat (freelook-camera-orientation w)))
-    (gl:translate 0.0 0.0 (- (freelook-camera-offset w)))
-    (gl:mult-matrix (sb-cga:transpose-matrix mat))
-    (gl:translate (aref pos 0)
+    (setf (freelook-camera-modelview w)
+          (sb-cga:matrix*
+           (sb-cga:translate* 0.0 0.0 (- (freelook-camera-offset w)))
+           (sb-cga:transpose-matrix mat)
+           (sb-cga:translate pos)))
+    (gl:mult-matrix
+     (freelook-camera-modelview w))
+    #++(gl:translate 0.0 0.0 (- (freelook-camera-offset w)))
+    #++(gl:mult-matrix (sb-cga:transpose-matrix mat))
+    #++(gl:translate (aref pos 0)
                   (aref pos 1)
                   (aref pos 2))))
 

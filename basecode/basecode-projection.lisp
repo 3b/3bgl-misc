@@ -2,9 +2,15 @@
 
 ;;; todo: adjust projection matrix when parameters are changed...
 
+(defclass projection ()
+  ;; to be updated by subclasses when updating GL projection matrix
+  ;; for use by code that doesn't use fixed-function transforms
+  ((projection-matrix :initform (sb-cga:identity-matrix)
+                      :reader projection-matrix)))
+
 ;; fixed size ortho projection (ORTHO-PROJECTION-SCALE unit square
 ;; centered at 0,0,0 is scaled to fit in view area)
-(defclass ortho-projection-fixed ()
+(defclass ortho-projection-fixed (projection)
   ((ortho-projection-scale :initform 1.0 :initarg :ortho-projection-scale
                            :accessor ortho-projection-scale)))
 
@@ -50,7 +56,7 @@
        (glu:ortho-2d (- right) right (- top) top))))
   (gl:matrix-mode :modelview))
 
-(defclass perspective-projection ()
+(defclass perspective-projection (projection)
   ((projection-near :initform 1.0
                     :accessor projection-near :initarg :projection-near)
    (projection-far :initform 100.0
@@ -58,20 +64,25 @@
    (projection-fov :initform 45
                    :reader projection-fov :initarg :projection-fov)))
 
+(defmethod update-projection ((w perspective-projection))
+  (gl:matrix-mode :projection)
+  (setf (slot-value w 'projection-matrix)
+        (sb-cga:matrix*
+         (3bgl-math::perspective-matrix
+          (/ (projection-fov w) (aspect w)) (aspect w)
+          (projection-near w) (projection-far w))))
+  (gl:load-matrix (projection-matrix w))
+  ;; (gl:load-identity)
+  ;; #++(glu:perspective (projection-fov w) (aspect w)
+  ;;                 (projection-near w) (projection-far w))
+  ;; (glu:perspective (/ (projection-fov w) (aspect w)) (aspect w)
+  ;;                  (projection-near w) (projection-far w))
+  (gl:matrix-mode :modelview))
+
 (defmethod (setf projection-fov) (new (w perspective-projection))
   (setf (slot-value w 'projection-fov) new)
-  (gl:matrix-mode :projection)
-  (gl:load-identity)
-  #++(glu:perspective (projection-fov w) (aspect w)
-                  (projection-near w) (projection-far w))
-  (glu:perspective (/ (projection-fov w) (aspect w)) (aspect w)
-                   (projection-near w) (projection-far w))
-  (gl:matrix-mode :modelview)
+  (update-projection w)
   new)
 
 (defmethod basecode-reshape :before ((w perspective-projection))
-  (gl:matrix-mode :projection)
-  (gl:load-identity)
-  (glu:perspective (projection-fov w) (aspect w)
-                  (projection-near w) (projection-far w))
-  (gl:matrix-mode :modelview))
+  (update-projection w))
