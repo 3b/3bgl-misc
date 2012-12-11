@@ -97,6 +97,22 @@
          (slot-value (%basecode-window w) '%mouse-position))
 )
 
+(defmethod glop:on-event ((w %basecode-glop-window)
+                          (event glop:expose-event))
+  ;; ignore for now, assuming we will usually be drawing on idle anyway
+  (declare (optimize debug) (ignore w event)))
+
+(defmethod glop:on-event ((w %basecode-glop-window)
+                          (event glop:visibility-obscured-event))
+  ;; fixme: possibly should pass this on so apps can pause when hidden?
+  (declare (optimize debug) (ignore w event)))
+
+
+(defmethod glop:on-event ((w %basecode-glop-window)
+                          (event glop:visibility-unobscured-event))
+  ;; fixme: possibly should pass this on so apps can pause when hidden?
+  (declare (optimize debug) (ignore w event)))
+
 
 
 #++(defmethod glop:close ((w basecode-glop))
@@ -110,7 +126,8 @@
     (basecode-init bw))
   (let ((%gl::*in-begin* nil))
     (glop:with-window (gw (title bw) (width bw) (height bw)
-                         :win-class '%basecode-glop-window)
+                         :win-class '%basecode-glop-window
+                         :depth-size 16)
      (setf (%basecode-window gw) bw)
      (setf (%glop-window bw) gw)
      (setf (slot-value bw '%exit-main-loop) nil)
