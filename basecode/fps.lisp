@@ -16,7 +16,9 @@
 
 ;;; fixme: higher res timer?
 (defun now ()
-  (float (/ (get-internal-real-time) internal-time-units-per-second) 1.0))
+  ;; single float runs out of precision, so use doubles here and cast to single
+  ;; if needed after calculating a delta or whatever
+  (float (/ (get-internal-real-time) internal-time-units-per-second) 1d0))
 
 (defmethod basecode-draw :around ((w fps-graph))
   (let ((start (now)))

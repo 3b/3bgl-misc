@@ -77,7 +77,7 @@
   (reset-freelook-camera i))
 
 (defun update-freelook-camera (w)
-  (let ((dt (- (now) (freelook-camera-last-updated w)))
+  (let ((dt (float (- (now) (freelook-camera-last-updated w)) 1f0))
         (localy (sb-cga:transform-direction (sb-cga:vec 0.0 1.0 0.0)
                                             (freelook-camera-orientation w)))
         (localx (sb-cga:transform-direction (sb-cga:vec 1.0 0.0 0.0)
