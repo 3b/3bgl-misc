@@ -12,6 +12,32 @@
        (gl:matrix-mode :modelview)
        ,@body)))
 
+(defmacro with-unit-ortho-projection ((win &key (scale 1) (origin :center))
+                                      &body body)
+  (alexandria:once-only (win)
+    (alexandria:with-gensyms (aspect w h)
+      `(gl:with-pushed-matrix* (:projection)
+         (gl:load-identity)
+         (let* ((,aspect (/ (float (width ,win))
+                            (float (height ,win))))
+                (,w (* ,scale
+                       (if (<= ,aspect 1.0)
+                           1.0
+                           ,aspect)))
+                (,h  (* ,scale
+                        (if (> ,aspect 1.0)
+                            1.0
+                            ,aspect))))
+           , (ecase origin
+               (:center ;; -1 .. +1, possibly should be -0.5 .. 0.5?
+                `(glu:ortho-2d (- ,w) ,w (- ,h) ,h))
+               (:upper-left
+                `(glu:ortho-2d 0 ,w ,h 0))
+               (:lower-left
+                `(glu:ortho-2d 0 ,w 0 ,h)))
+           (gl:matrix-mode :modelview)
+         ,@body)))))
+
 (defclass basecode-clear ()
   ((clear-color :initarg :clear-color :initform '(0 0 0 1)
                 :accessor clear-color)))
