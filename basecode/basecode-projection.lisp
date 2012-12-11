@@ -68,7 +68,7 @@
   (gl:matrix-mode :projection)
   (setf (slot-value w 'projection-matrix)
         (sb-cga:matrix*
-         (3bgl-math::perspective-matrix
+         (3bgl-math:perspective-matrix
           (/ (projection-fov w) (aspect w)) (aspect w)
           (projection-near w) (projection-far w))))
   (gl:load-matrix (projection-matrix w))

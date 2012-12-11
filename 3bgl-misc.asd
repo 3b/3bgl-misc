@@ -3,7 +3,11 @@
                           glop classimp)
   :serial t
   :components
-  ((:module "basecode"
+  ((:module "math"
+            :serial t
+            :components ((:file "package")
+                         (:file "math")))
+   (:module "basecode"
             :serial t
             :components ((:file "package")
                          (:file "basecode")
