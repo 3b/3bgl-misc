@@ -1,6 +1,7 @@
 (defsystem :3bgl-misc
   :depends-on (alexandria cl-glut cl-glu sb-cga zpb-ttf
-                          glop classimp)
+                          glop classimp static-vectors
+                          opticl)
   :serial t
   :components
   ((:module "math"
@@ -47,6 +48,10 @@
     :serial t
     :components ((:file "package")
                  (:file "bench")))
+   (:module "opticl"
+    :serial t
+    :components ((:file "package")
+                 (:file "opticl")))
    #++(:module "ttf"
             :serial t
             :components
