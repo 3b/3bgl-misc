@@ -1,7 +1,7 @@
 (defsystem :3bgl-misc
   :depends-on (alexandria cl-glut cl-glu sb-cga zpb-ttf
                           glop classimp static-vectors
-                          opticl)
+                          opticl com.gigamonkeys.binary-data)
   :serial t
   :components
   ((:module "math"
@@ -52,6 +52,10 @@
     :serial t
     :components ((:file "package")
                  (:file "opticl")))
+   (:module "dds"
+    :serial t
+    :components ((:file "package")
+                 (:file "dds")))
    #++(:module "ttf"
             :serial t
             :components
