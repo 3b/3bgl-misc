@@ -56,11 +56,15 @@
     :serial t
     :components ((:file "package")
                  (:file "dds")))
+   (:module "mesh"
+    :serial t
+    :components ((:file "package")
+                 (:file "mesh")
+                 (:file "shaders")))
    #++(:module "ttf"
             :serial t
             :components
             ((:file "package")
              (:file "extrude")
              (:file "ttf-extrude-example")))))
-
 

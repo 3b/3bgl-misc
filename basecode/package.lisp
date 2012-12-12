@@ -28,4 +28,5 @@
            #:key-up
            #:mouse-down
            #:mouse-up
-           #:basecode-exit-on-esc))
+           #:basecode-exit-on-esc
+           #:run-main-loop))
