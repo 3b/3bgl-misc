@@ -65,6 +65,21 @@
                     (aref ,pointer (+ (* 4 (+ (* ,y ,w) ,x)) 3))))))))))
 
 
+;; not sure which way this should be interpreted, currently NIL means
+;; "just send data directly", which means origin of image (probably
+;; upper right in opticl) is origin of texture (lower left in GL)
+(defparameter *flip-texture-y* nil)
+
+(defmacro do-pixels% ((j i wy) image &body body)
+  ;; like DO-PIXELS, but with %PIXEL locally fbonud to flip the image vertically
+  `(if *flip-texture-y*
+       (do-pixels (,j ,i) ,image
+         (macrolet ((%pixel (image-var y x) `(pixel ,image-var (- ,',wy ,y 1) ,x)))
+           ,@body))
+       (do-pixels (,j ,i) ,image
+         (macrolet ((%pixel (&rest r) `(pixel ,@r)))
+           ,@body))))
+
 (defun call-with-image-in-unsigned-bytes (image thunk)
   (cffi:with-foreign-object (p :unsigned-char (apply '* (array-dimensions image)))
     (with-image-bounds (wy wx c) image
@@ -72,20 +87,20 @@
                    `(values
                      ,@(loop for i below c
                           collect `(cffi:mem-aref p :unsigned-char
-                                                  (+ ,i (* i ,c) (* (- wy j 1) wx ,c)))))))
+                                                  (+ ,i (* i ,c) (* j wx ,c)))))))
         (ecase c
           (1 (expand-types (image 1-bit-gray-image 2-bit-gray-image
                                   4-bit-gray-image 8-bit-gray-image)
-               (do-pixels (j i) image
-                 (setf (v 1) (pixel image j i))))
+               (do-pixels% (j i wy) image
+                 (setf (v 1) (%pixel image j i))))
                  (funcall thunk p :luminance))
           (3 (expand-types (image 4-bit-rgb-image 8-bit-rgb-image)
-               (do-pixels (j i) image
-                 (setf (v 3) (pixel image j i))))
+               (do-pixels% (j i wy) image
+                 (setf (v 3) (%pixel image j i))))
              (funcall thunk p :rgb))
           (4 (expand-types (image 4-bit-rgba-image 8-bit-rgba-image)
-               (do-pixels (j i) image
-                 (setf (v 4) (pixel image j i))))
+               (do-pixels% (j i wy) image
+                 (setf (v 4) (%pixel image j i))))
              (funcall thunk p :rgba)))))))
 
 
@@ -96,19 +111,19 @@
                    `(values
                      ,@(loop for i below c
                           collect `(cffi:mem-aref p :unsigned-short
-                                                  (+ ,i (* i ,c) (* (- wy j 1) wx ,c)))))))
+                                                  (+ ,i (* i ,c) (* j wx ,c)))))))
         (ecase c
           (1 (expand-types (image 16-bit-gray-image)
-               (do-pixels (j i) image
-                 (setf (v 1) (pixel image j i))))
+               (do-pixels% (j i wy) image
+                 (setf (v 1) (%pixel image j i))))
              (funcall thunk p :luminance))
           (3 (expand-types (image 16-bit-rgb-image)
-               (do-pixels (j i) image
-                 (setf (v 3) (pixel image j i))))
+               (do-pixels% (j i wy) image
+                 (setf (v 3) (%pixel image j i))))
              (funcall thunk p :rgb))
           (4 (expand-types (image 16-bit-rgba-image)
-               (do-pixels (j i) image
-                 (setf (v 4) (pixel image j i))))
+               (do-pixels% (j i wy) image
+                 (setf (v 4) (%pixel image j i))))
              (funcall thunk p :rgba)))))))
 
 (defun call-with-image-in-unsigned-ints (image thunk)
@@ -118,18 +133,18 @@
                    `(values
                      ,@(loop for i below c
                           collect `(cffi:mem-aref p :unsigned-int
-                                                  (+ ,i (* i ,c) (* (- wy j 1) wx ,c)))))))
+                                                  (+ ,i (* i ,c) (* j wx ,c)))))))
         (ecase c
           (1 (expand-types (image 32-bit-gray-image)
-               (do-pixels (j i) image
-                 (setf (v 1) (pixel image j i))))
+               (do-pixels% (j i wy) image
+                 (setf (v 1) (%pixel image j i))))
              (funcall thunk p :luminance))
           #++(3 (expand-types (image 32-bit-rgb-image)
-               (do-pixels (j i) image
-                 (setf (v 3) (pixel image j i)))))
+               (do-pixels% (j i wy) image
+                 (setf (v 3) (%pixel image j i)))))
           #++(4 (expand-types (image 32-bit-rgba-image)
-               (do-pixels (j i) image
-                 (setf (v 4) (pixel image j i))))))))
+               (do-pixels% (j i wy) image
+                 (setf (v 4) (%pixel image j i))))))))
     (funcall thunk)))
 
 (defun call-with-image-in-single-floats (image thunk)
@@ -139,19 +154,19 @@
                    `(values
                      ,@(loop for i below c
                           collect `(cffi:mem-aref p :float
-                                                  (+ ,i (* i ,c) (* (- wy j 1) wx ,c)))))))
+                                                  (+ ,i (* i ,c) (* j wx ,c)))))))
         (ecase c
           (1 (expand-types (image opticl::single-float-gray-image)
-               (do-pixels (j i) image
-                 (setf (v 1) (pixel image j i))))
+               (do-pixels% (j i wy) image
+                 (setf (v 1) (%pixel image j i))))
              (funcall thunk p :luminance))
           (3 (expand-types (image opticl::single-float-rgb-image)
-               (do-pixels (j i) image
-                 (setf (v 3) (pixel image j i))))
+               (do-pixels% (j i wy) image
+                 (setf (v 3) (%pixel image j i))))
              (funcall thunk p :rgb))
           (4 (expand-types (image opticl::single-float-rgba-image)
-               (do-pixels (j i) image
-                 (setf (v 4) (pixel image j i))))
+               (do-pixels% (j i wy) image
+                 (setf (v 4) (%pixel image j i))))
              (funcall thunk p :rgba)))))
     (funcall thunk)))
 
@@ -182,18 +197,19 @@
 
 
 (defun tex-image-2d (target level internal-format image
-                     &key border)
+                     &key border flip-y)
   ;; target = :texture-2d
   ;; level = mipmap level
   ;; internal-format = same as gl:tex-image-2d (:rgba, :compressed-rgb, etc)
   ;; width/height from image
   ;; border = NIL/true
-  (let* ((width (array-dimension image 0))
-         (height (array-dimension image 1))
+  (let* ((width (array-dimension image 1))
+         (height (array-dimension image 0))
          #++(components (array-dimension image 2))
          (element-type (guess-element-type image))
          (internal-size (gl::internal-format->int internal-format))
-         (type (gethash element-type *type-map* nil)))
+         (type (gethash element-type *type-map* nil))
+         (*flip-texture-y* flip-y))
     (unless type
       (error "can't figure out how to upload array of type ~s?"
              (type-of image)))
