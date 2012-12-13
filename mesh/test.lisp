@@ -138,6 +138,7 @@
          (setf (tex w) nil))
        (let ((tex (gl:gen-textures 3)))
          (dds "/tmp/diffuse.dds" (first tex))
+         #++(png "/tmp/icos1.png" (first tex))
          (dds "/tmp/specular.dds" (second tex))
          (png "/tmp/normal.png" (third tex))
          (setf (tex w) tex)))
@@ -150,7 +151,14 @@
        (when (mesh w)
          (3bgl-mesh::free-mesh (mesh w)))
        (setf (mesh w)
-             (3bgl-mesh::cylinder-mesh :divisions 32 :segments 32 :length 10 :radius 3)))
+             (3bgl-mesh::cylinder-mesh :divisions 32 :segments 32
+                                       :length 10 :radius 3)))
+      ((:* :kp-multiply)
+       (when (mesh w)
+         (3bgl-mesh::free-mesh (mesh w)))
+       (setf (mesh w)
+             (3bgl-mesh::geodesic-sphere-mesh :radius 3 :divisions 2
+                                              :center (list 0 3 0))))
       ((:equal)
        (when (tex w)
          (gl:bind-texture :texture-2d (car (tex w)))

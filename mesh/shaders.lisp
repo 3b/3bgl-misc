@@ -96,8 +96,9 @@
                      one-over-d-squared spec-back-falloff))
     (setf color
           (vec4
-           (+ (* (.xyz dtex) cos-theta
-                 (vec3 1.0 1.0 1.0) ;; fixme: uniforms for light colors...
+           (+ (* spec-back-falloff
+                 (.xyz dtex) cos-theta
+                 (vec3 0.4 0.4 0.4) ;; fixme: uniforms for light colors...
                  50.0 one-over-d-squared)
               (* (.xyz dtex) 0.1)
               (* spec-back-falloff

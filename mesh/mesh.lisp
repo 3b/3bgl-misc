@@ -320,4 +320,182 @@
 
 
 
+(defun icosahedron1 ()
+  (let ((v (make-array 12))
+        (i 0)
+        (y1 (sin (atan 2 1))))
+    (flet ((v (x y z)
+             (setf (aref v i) (vec x y z))
+             (incf i)))
+      (v 0 1 0)
+      (loop for a from 0 by (* 72 (/ pi 180))
+            repeat 5
+            do (v (sin a) y1 (cos a)))
+      (loop for a from 36 by (* 72 (/ pi 180))
+            repeat 5
+            do (v (sin a) (- y1) (cos a)))
+      (v 0 -1 0))
+    (list v
+          #(1 0 2  2 0 3  3 0 4  4 0 5  5 0 1
+            1 2 6  6 2 7  2 3 7  7 3 8  3 4 8
+            8 4 9  4 5 9  9 5 10  5 1 10  10 1 6
+            6 7 11  7 8 11  8 9 11  9 10 11  10 6 11))))
+
+(defun icosahedron ()
+  (let ((p (make-array 22))
+        (i 0)
+        (y1 (sin (atan 1/2))))
+    (flet ((v (x y z u v w)
+             (setf (aref p i) (list (sb-cga:normalize (vec x y z))
+                                    (vec u v w)))
+             (incf i)))
+      ;; split poles so we can have separate UVs
+      (v 0 1 0 0.1 0 1)
+      (v 0 1 0 0.3 0 1)
+      (v 0 1 0 0.5 0 1)
+      (v 0 1 0 0.7 0 1)
+      (v 0 1 0 0.9 0 1)
+      (loop for a from 0 by (* 72 (/ pi 180))
+            for u from 0 by 0.2
+            repeat 6
+            do (v (sin a) y1 (cos a) u 1/3 1))
+      (loop for a from (* 36 (/ pi 180)) by (* 72 (/ pi 180))
+            for u from 0.1 by 0.2
+            repeat 6
+            do (v (sin a) (- y1) (cos a)
+                  u 2/3 1))
+      (v 0 -1 0 0.2 1 1)
+      (v 0 -1 0 0.4 1 1)
+      (v 0 -1 0 0.6 1 1)
+      (v 0 -1 0 0.8 1 1)
+      (v 0 -1 0 1.0 1 1))
+    (list p
+          ; 0..4 5..10 11..16 17..21
+          #(5 0 6  6 1 7  7 2 8  8 3 9  9 4 10
+            5 6 11  6 7 12  7 8 13  8 9 14  9 10 15
+            11 6 12  12 7 13  13 8 14  14 9 15  15 10 16
+            11 12 17  12 13 18  13 14 19  14 15 20  15 16 21))))
+
+
+
+(defun geodesic-sphere-mesh (&key
+                               (center '(0.0 0.0 0.0))
+                               (radius 1.0)
+                               ;; divisions 0 = icosahedron (with smoothed normals)
+                               (divisions 2))
+  (declare (optimize debug))
+  (let* ((center (svec center))
+         (radius (float radius 1f0))
+         (icos (icosahedron))
+         vin iin vout iout new-indices)
+    (labels ((v (i1 &optional i2)
+               (cond
+                 ;; existing midpoint
+                 ((and i1 i2 (gethash (list (min i1 i2) (max i1 i2))
+                                      new-indices)))
+                 ;; existing vertex
+                 ((and (not i2) (gethash i1 new-indices)))
+                 ;; new midpoint
+                 (i2
+                  (if (< i2 i1) (rotatef i1 i2))
+                  (let* ((p1 (aref vin i1))
+                         (p2 (aref vin i2))
+                         ;; average points, then normalize to push out to
+                         ;; surface of sphere
+                         (new (list
+                               (sb-cga:normalize
+                                (sb-cga:vec* (sb-cga:vec+ (first p1)
+                                                          (first p2))
+                                             0.5))
+                               (sb-cga:vec* (sb-cga:vec+ (second p1)
+                                                         (second p2))
+                                            0.5))))
+                    (setf (gethash (list i1 i2) new-indices)
+                          (vector-push-extend new vout))))
+                 ;; old vertex not seen yet
+                 (t
+                  (setf (gethash i1 new-indices)
+                        (vector-push-extend (aref vin i1) vout)))
+                 ))
+             (tri (i1 i2 i3)
+               (vector-push-extend i1 iout)
+               (vector-push-extend i2 iout)
+               (vector-push-extend i3 iout))
+             (sub1 (a b c)
+               (let ((p1 (v a))
+                     (p2 (v a b))
+                     (p3 (v a c))
+                     (p4 (v b))
+                     (p5 (v b c))
+                     (p6 (v c)))
+                 (tri p2 p1 p3)
+                 (tri p4 p2 p5)
+                 (tri p2 p3 p5)
+                 (tri p5 p3 p6)))
+             (sub ()
+               (loop for i below (length iin) by 3
+                     for p1 = (aref iin (+ i 0))
+                     for p2 = (aref iin (+ i 1))
+                     for p3 = (aref iin (+ i 2))
+                     do (sub1 p1 p2 p3))))
+      (setf vin (first icos)
+            iin (second icos))
+      (loop for i below (or divisions 0)
+            do (setf vout (make-array (length vin)
+                                      :adjustable t
+                                      :element-type 'sb-cga:vec
+                                      :fill-pointer 0)
+                     iout (make-array (length iin)
+                                      :adjustable t
+                                      :element-type '(unsigned-byte 32)
+                                      :fill-pointer 0)
+                     new-indices (make-hash-table :test #'equal))
+               (sub)
+               (setf vin vout iin iout))
+
+  (let ((vcount (length vin))
+        (icount (length iin))
+        (vindex 0)
+        (short (< (length iin) 65535)))
+    (with-static-vectors ((verts (* vcount 3))
+                          (uvs (* vcount 3))
+                          (normals (* vcount 3))
+                          (tangents (* vcount 3))
+                          (bone-weights (* vcount 4))
+                          (bone-indices (* vcount 4) :unsigned-byte))
+      (static-vectors:with-static-vector (indices
+                                          icount
+                                          :element-type (if short
+                                                            '(unsigned-byte 16)
+                                                            '(unsigned-byte 32))
+                                          :initial-element 0)
+        (labels ((add1 (a x &optional (count 3))
+                   (loop for i below count
+                         do (setf (aref a (+ i (* vindex count)))
+                                  (aref x i)))))
+          (loop with bw = (vec4 1 0 0 0)
+                with bi = (ub8vec4 0 0 0 0)
+                for (v1 uv) across vin
+                for v = (sb-cga:vec+ center (sb-cga:vec* v1 radius))
+                for n = (sb-cga:normalize v1)
+                for tan = (let ((x (sb-cga:cross-product n (vec 0 1 0))))
+                            (if (< (sb-cga:vec-length x) 0.1)
+                                (vec (sin (* (+ 1/2 (elt uv 0)) (/ pi 2)))
+                                     0
+                                     (cos (* (+ 1/2 (elt uv 0)) (/ pi 2))))
+                                x))
+                do (add1 verts v 3)
+                   (add1 uvs uv 3)
+                   (add1 normals n 3)
+                   (add1 tangents tan 3)
+                   (add1 bone-weights bw 4)
+                   (add1 bone-indices bi 4)
+                   (incf vindex)))
+        (replace indices iin)
+        (%make-mesh indices
+                    verts uvs normals tangents bone-weights bone-indices
+                    :index-type (if short :unsigned-short :unsigned-int)
+                    :index-size (if short 2 4))))))))
+
+
 
