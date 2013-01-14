@@ -11,6 +11,10 @@
                      :tick-interval 10))
 
 
+(defmethod basecode-repaint ((w basecode-glut))
+  (gl:clear :color-buffer-bit)
+  (glut:swap-buffers))
+
 
 
 ;;; declaring optimize debug to increase odds of having restartable frames

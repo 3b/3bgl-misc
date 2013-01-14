@@ -14,7 +14,10 @@
    ;; todo: handle multiple devices (mice,keyboards,etc)?
    (%key-states :reader key-state :initform (make-hash-table))
    (%mouse-buttons :reader mouse-buttons :initform (make-hash-table))
-   (%mouse-position :reader mouse-position :initform (list 0 0))))
+   (%mouse-position :reader mouse-position :initform (list 0 0))
+   ;; used to rate limit repaints from resize events
+   (%last-repaint :accessor %last-repaint :initform 0)
+   (%resized :accessor %resized :initform t)))
 
 (defgeneric basecode-init (w)
   (:method (w)))
@@ -25,6 +28,17 @@
 ;;; possibly should add (keyword?) arg for time since last draw call?
 (defgeneric basecode-draw (w)
   (:method (w)))
+(defmethod basecode-draw :after (w)
+  (setf (%resized w) nil))
+;; 'repaint' is called from resize handler, so should be faster than a
+;; normal draw (just clear screen, or copy an offscreen render without
+;; updating it or whatever)
+(defgeneric basecode-repaint (w)
+  (:method (w)))
+
+(defmethod basecode-repaint :after (w)
+  (setf (%last-repaint w) (get-internal-real-time)))
+
 (defgeneric basecode-key-state (w key)
   (:method (w key)
     (gethash key (key-state w) nil)))
@@ -38,6 +52,12 @@
 (defgeneric basecode-reshape (w)
   ;; called after window is resized, get new w/h from w
   (:method (w)))
+(defmethod basecode-reshape :after (w)
+  (when (and (%resized w)
+             (> (/ (- (get-internal-real-time) (%last-repaint w))
+                   internal-time-units-per-second)
+                1/50))
+    (basecode-repaint w)))
 
 ;;; these don't do any translation for now, so generic code will
 ;;; have to check multiple possible names for a given key

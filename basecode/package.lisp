@@ -29,4 +29,5 @@
            #:mouse-down
            #:mouse-up
            #:basecode-exit-on-esc
-           #:run-main-loop))
+           #:run-main-loop
+           #:basecode-repaint))

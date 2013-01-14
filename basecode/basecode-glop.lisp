@@ -40,11 +40,17 @@
   (glop:post-redisplay))
 
 
+(defmethod basecode-repaint ((w basecode-glop))
+  (gl:clear :color-buffer-bit)
+  (glop:swap-buffers (%glop-window w)))
+
 (defmethod glop:on-event ((w %basecode-glop-window) (event glop:resize-event))
   (declare (optimize debug))
   (let ((width (glop:width event))
         (height (glop:height event))
         (bw (%basecode-window w)))
+    (when (or (/= (width bw) width) (/= height (height bw)))
+      (setf (%resized bw) t))
     (gl:viewport 0 0 width height)
     (setf (slot-value bw '%width) width
           (slot-value bw 'width) width
