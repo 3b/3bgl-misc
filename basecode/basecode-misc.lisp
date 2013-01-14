@@ -1,6 +1,6 @@
 (in-package #:basecode)
 
-(defmacro with-pixel-ortho-projection ((w &key (scale 1)) &body body)
+(defmacro with-pixel-ortho-projection ((w &key (scale 1) (origin :upper-left)) &body body)
   (alexandria:once-only (w)
     `(gl:with-pushed-matrix* (:projection)
        (gl:load-identity)
@@ -8,7 +8,11 @@
                        ,scale))
              (top (/ (height ,w)
                      ,scale)))
-         (glu:ortho-2d 0 right top 0))
+         ,(ecase origin
+            (:upper-left
+             `(glu:ortho-2d 0 right top 0))
+            (:lower-left
+             `(glu:ortho-2d 0 right 0 top))))
        (gl:matrix-mode :modelview)
        ,@body)))
 
