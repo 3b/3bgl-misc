@@ -60,23 +60,11 @@
   (setf (freelook-camera-move-state w) (make-hash-table))
   ;; fixme: remember any initarg default speed
   (setf (freelook-camera-move-speed w) 8)
-  (flet ((v (l)
-           (apply #'sb-cga:vec
-                  (map 'list (lambda (a) (float a 1.0))
-                       l))))
-    (let* ((eye (v (look-at-eye w)))
-           (target (v (look-at-target w)))
-           (up (v (look-at-up w)))
-           (z (sb-cga:normalize (sb-cga:vec- target eye)))
-           (x (sb-cga:normalize (sb-cga:cross-product z up)) )
-           (y (sb-cga:cross-product x z)))
-      (setf (freelook-camera-position w) (sb-cga:vec- (sb-cga:vec 0.0 0.0 0.0)
-                                                      eye))
-      (setf (freelook-camera-orientation w)
-            (sb-cga:matrix (aref x 0) (aref y 0) (- (aref z 0)) 0.0
-                           (aref x 1) (aref y 1) (- (aref z 1)) 0.0
-                           (aref x 2) (aref y 2) (- (aref z 2)) 0.0
-                           0.0 0.0 0.0 1.0)))))
+  (setf (freelook-camera-position w) (sb-cga:vec- (sb-cga:vec 0.0 0.0 0.0)
+                                                  (look-at-eye w)))
+  (setf (freelook-camera-orientation w)
+        (3bgl-math:look-at (look-at-eye w) (look-at-target w)
+                           (look-at-up w))))
 
 (defmethod shared-initialize :after ((i freelook-camera) slot-names
                                      &rest initargs &key)

@@ -3,4 +3,6 @@
   (:export
    #:deg-to-rad
    #:copy-matrix
-   #:perspective-matrix))
+   #:perspective-matrix
+   #:ortho-matrix
+   #:look-at))
