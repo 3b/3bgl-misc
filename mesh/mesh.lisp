@@ -21,23 +21,45 @@
    ;; fixme: possibly should store numeric value rather than keyword for
    ;; index type?
    (index-type :accessor index-type :initform :unsigned-int
-               :initarg :index-type)))
+               :initarg :index-type)
+   (index-size :accessor index-size :initform 4
+               :initarg :index-size)))
 
 (defmethod draw (mesh &key)
   (when mesh
     (error "don't know how to draw ~s (~s)?" mesh (type-of mesh))))
 
-(defmethod draw ((mesh mesh) &key (mode :triangles))
+(defmethod draw ((mesh mesh) &key (mode :triangles) (start 0) end)
   (when (vao mesh)
     (gl:bind-vertex-array (vao mesh))
     (cond
       ((index-count mesh)
-       (gl:point-size 12)
-       (%gl:draw-elements mode (index-count mesh)
+       #++(assert (<= 0 start (index-count mesh)))
+       (cond
+         ((>= start (index-count mesh))
+          (return-from draw nil))
+         ((< start 0)
+          (setf start 0)))
+       (when end
+         (cond
+          ((> end (index-count mesh))
+           (setf end nil))
+          ((<= end start)
+           (return-from draw nil))))
+       #++(when end (assert (<= start end (index-count mesh))))
+       (gl:point-size 3)
+       (%gl:draw-elements mode (if end
+                                   (- end start)
+                                   (- (index-count mesh) start))
                           (index-type mesh)
-                          (cffi:null-pointer)))
+                          (* start (index-size mesh))))
       ((element-count mesh)
-       (%gl:draw-arrays mode 0 (element-count mesh))))))
+       (unless end (setf end (element-count mesh)))
+       (assert (<= 0 start (element-count mesh)))
+       (when end (assert (<= start end (element-count mesh))))
+       (%gl:draw-arrays mode start (if end
+                                       (- end start)
+                                       (- (element-count mesh) start)))))))
 
 (defmethod free-mesh ((mesh mesh))
   (when (vbos mesh)
@@ -73,6 +95,7 @@
                                 &rest more-bindings) &body body)
   (let ((lisp-type (ecase gl-type
                     (:float 'single-float)
+                    (:unsigned-short '(unsigned-byte 16))
                     (:unsigned-byte '(unsigned-byte 8))
                     (:byte '(signed-byte 8))
                     )))
@@ -81,6 +104,47 @@
              `((with-static-vectors (,@more-bindings)
                  ,@body))
              body))))
+
+(defun calculate-normals (indices verts normals)
+  ;; assumes any sharp edges are already split into separate points
+  (let* ((vcount (/ (length verts) 3))
+         (tcount (/ (length indices) 3))
+         ;(tri-normals (make-array tcount))
+         (vert-sums (make-array vcount
+                                :initial-element (sb-cga:vec 0.0 0.0 0.0)))
+         (vert-counts (make-array vcount :element-type '(unsigned-byte 32)
+                                  :initial-element 0)))
+    ;; calculate triangle normals
+    ;; sum/count vertex normals
+    (labels ((i (i)
+               (aref indices i))
+             (v (i)
+               (sb-cga:vec (aref verts (+ (* 3 i) 0))
+                           (aref verts (+ (* 3 i) 1))
+                           (aref verts (+ (* 3 i) 2))))
+             (add (i0 n)
+               (loop for i from i0 below (+  i0 3)
+                     do (setf (aref vert-sums (i i))
+                              (sb-cga:vec+ (aref vert-sums (i i)) n))
+                        (incf (aref vert-counts (i i))))))
+      (loop for tri below tcount
+            for i = (* tri 3)
+            for v0 = (v (i i))
+            for e1 = (sb-cga:vec- (v (i (+ i 1))) v0)
+            for e2 = (sb-cga:vec- (v (i (+ i 2))) v0)
+            for n = (sb-cga:cross-product e1 e2)
+            do (when (and n (> (sb-cga:vec-length n) 0.001))
+                 (add i (sb-cga:normalize n))))
+      ;; divide and copy into result vector
+      (loop for i below vcount
+            for n1 across vert-sums
+            for c across vert-counts
+            for n = (unless (zerop (sb-cga:vec-length n1))
+                      (sb-cga:normalize n1))
+            when n
+              do (setf (aref normals (+ 0 (* i 3))) (aref n 0)
+                       (aref normals (+ 1 (* i 3))) (aref n 1)
+                       (aref normals (+ 2 (* i 3))) (aref n 2))))))
 
 (defun %make-mesh (indices verts uvs normals tangents bone-weights bone-indices
                    &key (index-type :unsigned-int) (index-size 4))
@@ -117,7 +181,8 @@
                               :vbos vbos :vao vao
                               :index-count (length indices)
                               :element-count (length verts)
-                              :index-type index-type)
+                              :index-type index-type
+                              :index-size index-size)
              (setf vao nil)
              (setf vbos nil)))
       ;; clean stuff up (we set VBOS and VAO to nil on normal exit,
