@@ -11,11 +11,16 @@
      (sb-cga:vec (float (aref l 0) 1f0) (float (aref l 1) 1f0)
                  (float (aref l 2) 1f0)))))
 
-(declaim (inline deg-to-rad))
+(declaim (inline deg-to-rad rad-to-deg))
 (defun deg-to-rad (x)
   (typecase x
     (single-float
      (float (* x (/ pi 180.0)) 1.9))
+    (t (* x (/ pi 180)))))
+(defun rad-to-deg (x)
+  (typecase x
+    (single-float
+     (float (* x (/ 180.0 pi)) 1.0))
     (t (* x (/ pi 180)))))
 
 
