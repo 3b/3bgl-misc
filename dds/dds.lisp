@@ -425,8 +425,8 @@
 
 (define-binary-class dds-header (sized)
   ((flags (flags :alist *dds-header-flags*))
-   (width u32le)
    (height u32le)
+   (width u32le)
    (pitch-or-linear-size u32le)
    (depth u32le)
    (mip-count u32le)
@@ -446,40 +446,132 @@
    (array-size u32le)
    (reserved u32le)))
 
+(defun calculate-linear-size (header block-size &optional (mip 0) (bpp nil))
+  (let ((w (max 1 (floor (width header) (expt 2 mip))))
+        (h (max 1 (floor (height header) (expt 2 mip)))))
+    (cond
+      ;; already in header, just return it
+      #++((member :linearsize (flags header))
+       (pitch-or-linear-size header))
+      ((member :pitch (flags header))
+       (* (height header)
+          (pitch-or-linear-size header)))
+      ;; otherwise try to calculate it
+      ((numberp block-size)
+       #++
+       (format t "~s x ~s , ~s @ ~s -> ~s~%" w h block-size mip
+               (* (max 1 (ceiling w 4))
+                  (max 1 (ceiling h 4))
+                  block-size))
+       (* (max 1 (ceiling w 4))
+          (max 1 (ceiling h 4))
+          block-size))
+      #++((member :luminance (flags (pixel-format header)))
+          (* (width header) (height header)))
+      ((symbolp block-size)
+       #++
+       (format t "~s x ~s , ~s / ~s @ ~s -> ~s~%" w h block-size bpp mip
+                      (* w h
+          (or bpp
+              (ecase block-size
+                (:luminance 1) (:luminance-alpha 2) (:rgb 3) (:rgba 4)))))
+       (* w h
+          (or bpp
+              (ecase block-size
+                (:luminance 1) (:luminance-alpha 2) (:rgb 3) (:rgba 4)))))
+      (t
+       (error "don't know how to calculate size of data for this dds file?")
+       ))))
+
 (define-binary-type dds-images ()
   (:reader (in)
-           (let* ((o (current-binary-object))
-                  (header (header o))
-                  (format (or (and (dx10 o) (dx-format (dx10 o)))
-                              (and (member :fourcc
-                                           (flags (pixel-format header)))
-                                   (fourcc (pixel-format header)))))
-                  (params (cddr (assoc format *dds-format-params*))))
-             (flet ((flag (x) (member x (flags header))))
-               (unless (flag :linearsize)
-                 (error "don't know how to load DDS files without 'linearsize' flag yet"))
-               (unless (and params (car params))
-                 (error "don't know how to parse format ~s" format))
-               (destructuring-bind (decodable block-size components octets
-                                    internal-format
-                                    &optional format type normalized)
-                   params
-                 (declare (ignorable decodable components octets))
-                 (list :width (width header)
-                       :height (height header)
-                       :compressed (if block-size t nil)
-                       :internal-format internal-format
-                       :format format
-                       :type type
-                       :normalized normalized
-                       :mips
-                       (loop with block-size = (or (second params) 1)
-                             for i below (if (flag :mipmapcount)
-                                             (mip-count header)
-                                             1)
-                             for s = (pitch-or-linear-size header)
-                               then (max block-size (floor s 4))
-                             collect (read-value 'octets in :l s)))))))
+           (let ((*print-array* nil)
+                 #++(*print-length* 16))
+             ;;(print (flags (header (current-binary-object))))
+             ;;(print (flags (pixel-format (header (current-binary-object)))))
+             ;;(print (fourcc (pixel-format (header (current-binary-object)))))
+             (progn
+              (let* ((o (current-binary-object))
+                     (header (header o)))
+                (labels ((flag (x) (member x (flags header)))
+                         (pf-flag (x) (member x (flags (pixel-format header))))
+                         (no-4cc ()
+                           (let ((luminance (pf-flag :luminance))
+                                 (rgb (pf-flag :rgb))
+                                 (alpha (pf-flag :alpha-pixels)))
+                             (when (not (pf-flag :fourcc))
+                               #++(format t "~s ~s/~s/~s/~s ~s~%"
+                                       (flags (pixel-format header))
+                                       (r-bitmask (pixel-format header))
+                                       (g-bitmask (pixel-format header))
+                                       (b-bitmask (pixel-format header))
+                                       (a-bitmask (pixel-format header))
+                                       (rgb-bit-count (pixel-format header))
+                                       )
+                               (cond
+                                 ((and luminance (not alpha))
+                                  :luminance)
+                                 ((and luminance alpha)
+                                  :luminance-alpha)
+                                 ((and rgb (not alpha))
+                                  (if (= (rgb-bit-count (pixel-format header))
+                                         16)
+                                      (values :rgb :rgb :unsigned-short-5-6-5 2)
+                                      :rgb))
+                                 ((and rgb alpha)
+                                  :rgba)
+                                 (t nil))))))
+                  (let* ((format (or (and (dx10 o) (dx-format (dx10 o)))
+                                     (and (pf-flag :fourcc)
+                                          (fourcc (pixel-format header)))))
+                         (params (cddr (assoc format *dds-format-params*))))
+                    (cond
+                      ;; handle some special cases/unusual formats
+                      ((multiple-value-bind (if f type bpp) (no-4cc)
+                         ;; various uncompressed texture formats
+                         ;; fixme: handle varying bit depths?
+                         (when if
+                           #++(format t "~&f = ~s/~s/~s/~s~%" if f type bpp)
+                           (list :width (width header)
+                                 :height (height header)
+                                 :compressed nil
+                                 :internal-format if
+                                 :format (or f if)
+                                 :type (or type :unsigned-byte)
+                                 :normalized t
+                                 :mips
+                                 (loop for i below (if (flag :mipmapcount)
+                                                       (mip-count header)
+                                                       1)
+                                       for s = (calculate-linear-size header
+                                                                      if
+                                                                      i
+                                                                      bpp)
+                                       collect (read-value 'octets in :l s))))))
+                      ((not (and params (car params)))
+                       ;; give up
+                       (error "don't know how to parse format ~s flags=~s, pf flags = ~s" format (flags header) (flags (pixel-format header))))
+                      (t(destructuring-bind (decodable block-size components octets
+                                             internal-format
+                                             &optional format type normalized)
+                            params
+                          (declare (ignorable decodable components octets))
+                          #++(format t "if=~s~%" internal-format)
+                          (list :width (width header)
+                                :height (height header)
+                                :compressed (if block-size t nil)
+                                :internal-format internal-format
+                                :format format
+                                :type type
+                                :normalized normalized
+                                :mips
+                                (loop for i below (if (flag :mipmapcount)
+                                                      (mip-count header)
+                                                      1)
+                                      for s = (calculate-linear-size header
+                                                                     block-size
+                                                                     i)
+                                      collect (read-value 'octets in :l s))))))))))))
   (:writer (out stream)
            (declare (ignore out stream))
            (error "don't know how to write .dds image data yet")))
@@ -498,20 +590,29 @@
   (binary-data:read-value 'dds-file in))
 
 
-(defun tex-image-2d (filename)
+(defmethod tex-image-2d ((dds dds-file) &key (level 0))
+  (destructuring-bind (&key width height compressed internal-format format type normalized mips) (images dds)
+    (declare (ignore normalized))
+    (loop for mip in mips
+          for w = width then (max 1 (floor w 2))
+          for h = height then (max 1 (floor h 2))
+          for level from level
+          do (if compressed
+                 (gl:compressed-tex-image-2d :texture-2d level internal-format
+                                             w h 0 mip)
+                 (gl:tex-image-2d :texture-2d level internal-format w h 0
+                                  format type mip)))
+    ;; return number of mipmap levels loaded
+    (length mips)))
+
+(defmethod tex-image-2d ((filename string) &key (level 0))
   (with-open-file (in filename :element-type '(unsigned-byte 8))
-    (let ((dds (read-value 'dds-file in)))
-      (destructuring-bind (&key width height compressed internal-format format type normalized mips) (images dds)
-       (declare (ignore normalized))
-        (loop for mip in mips
-              for w = width then (max 1 (floor w 2))
-              for h = height then (max 1 (floor h 2))
-              for level from 0
-              do (if compressed
-                     (gl:compressed-tex-image-2d :texture-2d level internal-format
-                                                 w h 0 mip)
-                     (gl:tex-image-2d :texture-2d level internal-format w h 0
-                                      format type mip)))))))
+    (tex-image-2d (read-value 'dds-file in) :level level)))
+
+(defmethod tex-image-2d ((filename pathname) &key (level 0))
+  (with-open-file (in filename :element-type '(unsigned-byte 8))
+    (tex-image-2d (read-value 'dds-file in) :level level)))
+
 
 
 
