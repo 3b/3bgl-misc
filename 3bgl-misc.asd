@@ -7,7 +7,8 @@
   ((:module "math"
             :serial t
             :components ((:file "package")
-                         (:file "math")))
+                         (:file "math")
+                         (:file "quat")))
    (:module "basecode"
             :serial t
             :components ((:file "package")
