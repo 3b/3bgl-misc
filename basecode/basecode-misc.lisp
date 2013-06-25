@@ -98,7 +98,7 @@
     (gl:disable :lighting :texture-2d)
     (gl:enable :blend :line-smooth :multisample :depth-test)
     (gl:polygon-mode :front-and-back :fill)
-    ;; (gl:disable :blend)
+    (gl:enable :blend)
     (gl:blend-func :src-alpha :one-minus-src-alpha)
     (gl:with-primitives :triangles
       (gl:color 1 0.2 0.2 0.2)
@@ -124,11 +124,23 @@
          else
          do (gl:line-width 2)
          unless (zerop i)
-         do
-           (gl:with-primitives :lines
-             (gl:vertex -20 0 i)
-             (gl:vertex  20 0 i)
-             (gl:vertex i 0 -20)
-             (gl:vertex i 0  20))))
+           do
+              (gl:with-primitives :lines
+                (gl:vertex -20 0 i)
+                (gl:vertex  20 0 i)
+                (gl:vertex i 0 -20)
+                (gl:vertex i 0  20))))
+    (gl:with-primitives :triangles
+      (gl:color 1 0 0 1)
+      (gl:vertex 22 0 0)
+      (gl:vertex 21 0 0.5)
+      (gl:vertex 21 0 -0.5)
+
+      (gl:color 0 1 0 1)
+      (gl:vertex 0 0 22)
+      (gl:vertex 0.5 0 21)
+      (gl:vertex -0.5 0 21)
+
+)
     (gl:line-width 1)))
 
