@@ -5,4 +5,5 @@
    #:copy-matrix
    #:perspective-matrix
    #:ortho-matrix
-   #:look-at))
+   #:look-at
+   #:frustum))

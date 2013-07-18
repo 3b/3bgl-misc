@@ -24,6 +24,16 @@
     (t (* x (/ 180 pi)))))
 
 
+(defun frustum (left right bottom top near far)
+  (let ((r-l (- right left))
+        (t-b (- top bottom))
+        (f-n (- far near))
+        (2near (* 2 near)))
+    (matrix (/ 2near r-l) 0.0 (/ (+ right left) r-l) 0.0
+            0.0 (/ 2near t-b) (/ (+ top bottom) t-b) 0.0
+            0.0 0.0 (- (/ (+ far near) f-n)) (/ (* -2 far near) f-n)
+            0.0 0.0 -1.0 0.0)))
+
 (defun perspective-matrix (fovy-degrees aspect z-near z-far)
   (let ((f (float (/ (tan (/ (deg-to-rad fovy-degrees) 2))) 1.0))
         (dz (- z-near z-far)))
