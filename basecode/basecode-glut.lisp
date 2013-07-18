@@ -102,6 +102,5 @@
   (glut:leave-main-loop))
 
 (defmethod run-main-loop ((w basecode-glut))
-  (glut:main-loop)
+  (glut:main-loop))
 
-)
