@@ -73,7 +73,7 @@
   (setf (slot-value w '%mouse-position)
         (list x y))
   (setf (gethash button (mouse-buttons w)) state)
-  (if state
+  (if (eq state :down)
       (mouse-down w button x y)
       (mouse-up w button x y)))
 
