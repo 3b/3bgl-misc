@@ -67,14 +67,14 @@
   (declare (optimize debug))
   (let ((key (glop:keysym event)))
     (unless (shiftf (gethash key (key-state (%basecode-window w))) t)
-      (key-down (%basecode-window w) key))))
+      (with-continue-restart (key-down (%basecode-window w) key)))))
 
 (defmethod glop:on-event ((w %basecode-glop-window)
                           (event glop:key-release-event))
   (declare (optimize debug))
   (let ((key (glop:keysym event)))
     (setf (gethash key (key-state (%basecode-window w))) nil)
-    (key-up (%basecode-window w) key)))
+    (with-continue-restart (key-up (%basecode-window w) key))))
 
 
 (defmethod glop:on-event ((w %basecode-glop-window)
@@ -82,8 +82,9 @@
   (declare (optimize debug))
   (setf (slot-value (%basecode-window w) '%mouse-position)
         (list (glop:x event) (glop:y event)))
-  (apply #'mouse-move (%basecode-window w)
-         (slot-value (%basecode-window w) '%mouse-position)))
+  (with-continue-restart
+    (apply #'mouse-move (%basecode-window w)
+           (slot-value (%basecode-window w) '%mouse-position))))
 
 (defmethod glop:on-event ((w %basecode-glop-window)
                           (event glop:button-press-event))
@@ -92,8 +93,9 @@
         (list (glop:x event) (glop:y event)))
   (setf (gethash (glop:button event) (mouse-buttons (%basecode-window w)))
         (glop:pressed event))
-  (apply #'mouse-down (%basecode-window w) (glop:button event)
-         (slot-value (%basecode-window w) '%mouse-position)))
+  (with-continue-restart
+    (apply #'mouse-down (%basecode-window w) (glop:button event)
+          (slot-value (%basecode-window w) '%mouse-position))))
 
 (defmethod glop:on-event ((w %basecode-glop-window)
                           (event glop:button-release-event))
@@ -102,8 +104,9 @@
         (list (glop:x event) (glop:y event)))
   (setf (gethash (glop:button event) (mouse-buttons (%basecode-window w)))
         (glop:pressed event))
-  (apply #'mouse-up (%basecode-window w) (glop:button event)
-         (slot-value (%basecode-window w) '%mouse-position))
+  (with-continue-restart
+    (apply #'mouse-up (%basecode-window w) (glop:button event)
+          (slot-value (%basecode-window w) '%mouse-position)))
 )
 
 (defmethod glop:on-event ((w %basecode-glop-window)
