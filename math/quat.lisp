@@ -10,14 +10,25 @@
 (defun qj (q) (aref q 2))
 (defun qk (q) (aref q 3))
 
-(deftype quaternion () 
+(deftype quaternion ()
   "A quaternion of single floats. [W, Xi, Yj, Zk]"
   '(simple-array single-float (4)))
+
+(deftype dquaternion ()
+  "A quaternion of double floats. [W, Xi, Yj, Zk]"
+  '(simple-array double-float (4)))
+
 
 (declaim (inline quaternion))
 (defun quaternion (w x y z)
   "Allocate quaternion [W, Xi, Yj, Zk]."
   (make-array 4 :element-type 'single-float :initial-contents (list w x y z)))
+
+(declaim (inline dquaternion))
+(defun dquaternion (w x y z)
+  "Allocate dquaternion [W, Xi, Yj, Zk]."
+  (make-array 4 :element-type 'double-float :initial-contents (list w x y z)))
+
 
 (declaim (inline angle-axis->quaternion))
 (defun angle-axis->quaternion (angle-radians axis)
@@ -32,6 +43,20 @@
 ;;; to inline
 (declaim (notinline angle-axis->quaternion))
 
+(declaim (inline angle-axis->dquaternion))
+(defun angle-axis->dquaternion (angle-radians axis)
+  "create a quaternion from specified axis and angle in radians"
+  (let* ((half-a (/ angle-radians 2d0))
+         (s (float (sin half-a) 1d0)))
+    (dquaternion (float (cos half-a) 1d0)
+                (* (vx axis) s)
+                (* (vy axis) s)
+                (* (vz axis) s))))
+;;; assuming this isn't generally speed sensitive, so not defaulting
+;;; to inline
+(declaim (notinline angle-axis->d1quaternion))
+
+
 #++
 (defun euler->quaternion (rx ry rz)
   )
@@ -42,7 +67,7 @@
          (qy (qj q))
          (qz (qk q))
          (qw (qw q))
-c         (d (sqrt (- 1 (expt (qw q) 2))))
+         (d (sqrt (- 1 (expt (qw q) 2))))
          (a (* 2 (acos qw))))
     (if (zerop a)
      (values a (sb-cga:vec 1.0 0.0 0.0))
@@ -93,6 +118,14 @@ c         (d (sqrt (- 1 (expt (qw q) 2))))
       (loop for c in rest do (%quat* r c r)))
     r))
 
+(defun dquat* (a b &rest rest)
+  "multiply quaternions A and B returning result as a new quaternion."
+  (let ((r (multiple-value-call #'dquaternion
+             (%nq* (aref a 0) (aref a 1) (aref a 2) (aref a 3)
+                   (aref b 0) (aref b 1) (aref b 2) (aref b 3)))))
+    (when rest
+      (loop for c in rest do (%quat* r c r)))
+    r))
 
 
 (defmacro defun-qrot (nname name index &optional post)
@@ -221,13 +254,24 @@ result as a new single-float vector."
          (2bc (* 2 b c))
          (2bd (* 2 b d))
          (2cd (* 2 c d)))
-    (sb-cga:matrix*
-     matrix
-     (sb-cga:matrix
-      (- (+ aa bb) cc dd) (- 2bc 2ad)         (+ 2ac 2bd)         0.0
-      (+ 2ad 2bc)         (- (+ aa cc) bb dd) (- 2cd 2ab)         0.0
-      (- 2bd 2ac)         (+ 2ab 2cd)         (- (+ aa dd) bb cc) 0.0
-      0.0 0.0 0.0 1.0))))
+    (etypecase quat
+      (dquaternion
+       (flet ((f (x) (float x 1.0)))
+         (sb-cga:matrix*
+          matrix
+          (sb-cga:matrix
+           (f (- (+ aa bb) cc dd)) (f(- 2bc 2ad)) (f(+ 2ac 2bd)) 0.0
+           (f (+ 2ad 2bc))         (f (- (+ aa cc) bb dd)) (f (- 2cd 2ab)) 0.0
+           (f (- 2bd 2ac))         (f (+ 2ab 2cd)) (f (- (+ aa dd) bb cc)) 0.0
+           0.0 0.0 0.0 1.0))))
+      (quaternion
+       (sb-cga:matrix*
+        matrix
+        (sb-cga:matrix
+         (- (+ aa bb) cc dd) (- 2bc 2ad)         (+ 2ac 2bd)         0.0
+         (+ 2ad 2bc)         (- (+ aa cc) bb dd) (- 2cd 2ab)         0.0
+         (- 2bd 2ac)         (+ 2ab 2cd)         (- (+ aa dd) bb cc) 0.0
+         0.0 0.0 0.0 1.0))))))
 
 
 ;; todo: lerp, nlerp, slerp
