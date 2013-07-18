@@ -125,6 +125,44 @@
   ;; fixme: possibly should pass this on so apps can pause when hidden?
   (declare (optimize debug) (ignore w event)))
 
+(defgeneric basecode-child-mapped (w child)
+  (:method (w c)))
+
+(defgeneric basecode-child-unmapped (w child)
+  (:method (w c)))
+
+(defgeneric basecode-child-resized (w child width height)
+  (:method (w c width height)))
+
+(defgeneric basecode-child-reparent (w child parent x y)
+  (:method (w c p x y)))
+
+(defmethod glop:on-event ((w %basecode-glop-window)
+                          (event glop::child-visibility-unobscured-event))
+  (declare (optimize debug))
+  (with-continue-restart
+    (basecode-child-mapped (%basecode-window w) (glop::child event))))
+
+(defmethod glop:on-event ((w %basecode-glop-window)
+                          (event glop::child-visibility-obscured-event))
+  (declare (optimize debug))
+  (with-continue-restart
+    (basecode-child-unmapped (%basecode-window w) (glop::child event))))
+
+(defmethod glop:on-event ((w %basecode-glop-window)
+                          (event glop::child-resize-event))
+  (declare (optimize debug))
+  (with-continue-restart
+    (basecode-child-resized (%basecode-window w) (glop::child event)
+                             (glop::width event) (glop::height event))))
+
+(defmethod glop:on-event ((w %basecode-glop-window)
+                          (event glop::child-reparent-event))
+  (declare (optimize debug))
+  (with-continue-restart
+    (basecode-child-reparent (%basecode-window w)
+                             (glop::child event) (glop::parent event)
+                             (glop::x event) (glop::y event))))
 
 
 #++(defmethod glop:close ((w basecode-glop))
