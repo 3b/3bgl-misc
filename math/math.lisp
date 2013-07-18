@@ -21,7 +21,7 @@
   (typecase x
     (single-float
      (float (* x (/ 180.0 pi)) 1.0))
-    (t (* x (/ pi 180)))))
+    (t (* x (/ 180 pi)))))
 
 
 (defun perspective-matrix (fovy-degrees aspect z-near z-far)
