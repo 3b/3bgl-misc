@@ -20,6 +20,7 @@
                          (:file "basecode-misc")
                          (:file "basecode-exit-on-esc")
                          (:file "fps")
+                         (:file "basecode-fbo")
                          #++(:file "basecode-demo")))
    (:module "geometry"
             :serial t
