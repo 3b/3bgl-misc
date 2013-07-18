@@ -32,8 +32,11 @@
 
    (freelook-camera-move-state :accessor freelook-camera-move-state
                                :initform (make-hash-table))
-   (freelook-camera-move-speed :accessor freelook-camera-move-speed
-                               :initform 8)
+   (freelook-camera-move-speed :accessor %freelook-camera-move-speed
+                               :initform 8
+                               :initarg :freelook-move-speed)
+   (freelook-camera-move-speed-multiplier :accessor freelook-camera-move-speed-multiplier
+                                          :initform 1)
    (freelook-camera-turn-speed :accessor freelook-camera-turn-speed
                                :initform (/ (* 45 (/ pi 180)) 1000))
    (freelook-camera-last-updated :accessor freelook-camera-last-updated
@@ -56,12 +59,16 @@
                    :accessor look-at-target)
    (look-at-up :initform '(0 1 0) :initarg :look-at-up :accessor look-at-up)))
 
+(defmethod freelook-camera-move-speed (w)
+  (* (%freelook-camera-move-speed w) (freelook-camera-move-speed-multiplier w)))
+
 (defun reset-freelook-camera (w)
   (setf (freelook-camera-move-state w) (make-hash-table))
   ;; fixme: remember any initarg default speed
-  (setf (freelook-camera-move-speed w) 8)
+  (setf (freelook-camera-move-speed-multiplier w) 1)
   (setf (freelook-camera-position w) (sb-cga:vec- (sb-cga:vec 0.0 0.0 0.0)
-                                                  (look-at-eye w)))
+                                                  (3bgl-math::v
+                                                         (look-at-eye w))))
   (setf (freelook-camera-orientation w)
         (3bgl-math:look-at (look-at-eye w) (look-at-target w)
                            (look-at-up w))))
@@ -238,11 +245,11 @@
     (when (or (eql button :button4) (eql button 6))
       (decf (projection-fov w) 5))
     (when (or (eql button :wheel-up) (eql button 4))
-      (setf (freelook-camera-move-speed w)
-            (* (freelook-camera-move-speed w) 1.1)))
+      (setf (freelook-camera-move-speed-multiplier w)
+            (* (freelook-camera-move-speed-multiplier w) 1.1)))
     (when (or (eql button :wheel-down) (eql button 5))
-      (setf (freelook-camera-move-speed w)
-            (* (freelook-camera-move-speed w) 0.9))))
+      (setf (freelook-camera-move-speed-multiplier w)
+            (* (freelook-camera-move-speed-multiplier w) 0.9))))
 
 (defmethod mouse-up :before ((w freelook-camera) button x y)
   (when (or (eql button :right-button) (eql button 3))
