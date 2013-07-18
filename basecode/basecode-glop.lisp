@@ -16,9 +16,12 @@
    (title :reader title :initarg :title)
    (width :reader width :initarg :width)
    (height :reader height :initarg :height)
+   (x-pos :reader x-pos :initarg :x)
+   (y-pos :reader y-pos :initarg :y)
    (mode :initarg :mode)
    )
   (:default-initargs :width 640 :height 480 :title "..."
+                     :x 0 :y 0
    ;;not sure how to pass extra params to window creation yet...
                      :mode '()))
 
@@ -132,8 +135,9 @@
     (basecode-init bw))
   (let ((%gl::*in-begin* nil))
     (glop:with-window (gw (title bw) (width bw) (height bw)
-                         :win-class '%basecode-glop-window
-                         :depth-size 16)
+                          :x (x-pos bw) :y (y-pos bw)
+                          :win-class '%basecode-glop-window
+                          :depth-size 16)
      (setf (%basecode-window gw) bw)
      (setf (%glop-window bw) gw)
      (setf (slot-value bw '%exit-main-loop) nil)
