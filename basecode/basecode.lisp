@@ -10,7 +10,7 @@
 (defclass basecode ()
   ((%width :reader width)
    (%height :reader height)
-   (%aspect :reader aspect)
+   (%aspect :reader aspect :initform 1.0)
    ;; todo: handle multiple devices (mice,keyboards,etc)?
    (%key-states :reader key-state :initform (make-hash-table))
    (%mouse-buttons :reader mouse-buttons :initform (make-hash-table))
