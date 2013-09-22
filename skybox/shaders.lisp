@@ -139,15 +139,13 @@
            (t2 (/ (* 2 c) q))
            (max (max t1 t2)))
       (declare (:float q t1 t2 max))
-      #++(when (< max 0)
-           ;; outside atmosphere looking away
-           (return -1.0))
-      ;; can see atmosphere, assume we are inside for now (so 'min t1 t2)'
-      ;; is distance to edge of atmosphere behind view, max is
-      ;; distance along view) todo: handle looking through atmosphere
-      ;; from outside (might just replace start with point at min in
-      ;; that case?  more likely to need surface intersection for
-      ;; those cases though)
+      ;; if max < 0, we are outside atmosphere, looking away,
+      ;; otherwise we can see atmosphere, assume we are inside for now
+      ;; (so '(min t1 t2)' is distance to edge of atmosphere behind
+      ;; view, max is distance along view) todo: handle looking
+      ;; through atmosphere from outside (might just replace start
+      ;; with point at min in that case?  more likely to need surface
+      ;; intersection for those cases though)
       (return max))))
 
 (defun calculate-sunlight (eye-pos view-dir sun-dir
@@ -227,11 +225,8 @@
              ;0.9907498873825243d0
              )
       (return (* 100 (exp (- (+ (* +rayleigh-scattering+ view-depth-rayleigh)
-                          (* +mie-scattering+ 1.1 view-depth-mie))))))
-      (return (vec3 0.5 0.2 0.9))
-    ; (return (vec3 (* 50 (- (dot view-dir sun-dir) 0.99))))
-      )
-    ;(return (vec3 (* mie 1e-5)))
+                          (* +mie-scattering+ 1.1 view-depth-mie)))))))
+
 
     (return (* 1 ; (/ 1 (* 3.141592))
                (+ (* rayleigh (rayleigh-phase (dot view-dir sun-dir))
@@ -243,9 +238,7 @@
                          #++(mie-phase-hg (dot view-dir sun-dir)
                                        0.8)
                      +mie-scattering+)
-                  )))
-
-))
+                  )))))
 
 
 ;;; assuming planet is at 0,0,0
@@ -260,78 +253,12 @@
 
 (defun fragment ()
   (declare (values))
-#++
-  (setf out-color (vec4 (pow (dot (normalize light-dir) (normalize (@ ins eye-dir))) 64)
-                        0.0 0.0 1.0))
-#++
-  (setf out-color (vec4 (mie-phase (dot (normalize light-dir)
-                                           (normalize (@ ins eye-dir)))
-                                      0.76)
-                        0.0 0.0 1.0))
-#++
-  (let ((g 0.9)
-        (tmp (vec3 0.0 0.0 0.0)))
-    (declare (:float g)
-             (:vec3 tmp))
-    #++(setf out-color (vec4 (rayleigh-phase (dot (normalize light-dir)
-                                               (normalize (@ ins eye-dir))))
-                          0.0 0.0 1.0))
-    #++(setf out-color (vec4 (/ (mie-phase-schlick (dot (normalize light-dir)
-                                                   (normalize (@ ins eye-dir)))
-                                                (phase-g-to-k g))
-                             4)
-                         (/ (mie-phase-hg (dot (normalize light-dir)
-                                          (normalize (@ ins eye-dir)))
-                                     g)
-                            4)
-                         (/  (mie-phase-cs  (dot (normalize light-dir)
-                                            (normalize (@ ins eye-dir)))
-                                       g)
-                            4)
-                         1.0))
-
-    (dotimes (x 5)
-            (let ((g2 (/ g (+ 1 x))))
-              (declare (:float g2))
-              (setf tmp
-                    (+ tmp
-                       (vec3 (/ (mie-phase-schlick (dot (normalize light-dir)
-                                                      (normalize (@ ins eye-dir)))
-                                                 (phase-g-to-k g2))
-                              4)
-                           (/ (mie-phase-hg (dot (normalize light-dir)
-                                                 (normalize (@ ins eye-dir)))
-                                            g2)
-                              4)
-                           (/  (mie-phase-cs  (dot (normalize light-dir)
-                                                   (normalize (@ ins eye-dir)))
-                                              g2)
-                               4))))))
-
-    (setf out-color (vec4 (* tmp 0.2) 1.0)))
-
-  #++
-  (setf out-color (vec4 (integrate-light-to-sun #++ eye-pos-planet
-                                                (vec3 0.0
-                                                      ;;6360000.0
-                                                      ;;6420000.0
-                                                      +surface-height+
-                                                      0.0)
-                                                (normalize (@ ins eye-dir))
-                                                5)
-                        1.0))
   (setf out-color (vec4 (calculate-sunlight (vec3 0.0  +surface-height+ 0.0)
                                             (normalize (@ ins eye-dir))
                                             (normalize light-dir)
                                             50
                                             50)
-                        1.0))
-
-#++
-  (setf out-color (vec4 (normalize (@ ins eye-dir))  1.0))
-  #++(setf out-color  (vec4 1.0 (.xy (@ ins eye-dir)) 1.0))
-
-  )
+                        1.0)))
 
 ;; find intersection with outside of atmosphere
 ;; step from
