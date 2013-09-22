@@ -63,6 +63,11 @@
     :components ((:file "package")
                  (:file "mesh")
                  (:file "shaders")))
+   (:module "skybox"
+    :serial t
+    :components ((:file "package")
+                 (:file "shaders")
+                 #++(:file "skybox-demo")))
    #++(:module "ttf"
             :serial t
             :components
