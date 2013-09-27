@@ -1,7 +1,8 @@
 (defsystem :3bgl-misc
   :depends-on (alexandria cl-glut cl-glu sb-cga zpb-ttf
                           glop classimp static-vectors
-                          opticl com.gigamonkeys.binary-data)
+                          opticl com.gigamonkeys.binary-data
+                          split-sequence parse-number)
   :serial t
   :components
   ((:module "math"
