@@ -1,4 +1,3 @@
 (defpackage #:3bgl-radiance-hdr
-  (:use :cl :binary-data
-        :com.gigamonkeys.binary-data.common-datatypes)
+  (:use :cl)
   (:export :tex-image-2d))
