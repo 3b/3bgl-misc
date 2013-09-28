@@ -30,4 +30,5 @@
            #:mouse-up
            #:basecode-exit-on-esc
            #:run-main-loop
-           #:basecode-repaint))
+           #:basecode-repaint
+           #:mouse-move))
