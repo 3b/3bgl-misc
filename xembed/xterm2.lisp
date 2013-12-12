@@ -185,13 +185,12 @@
 
     (format t "configs = ~s~%" config)
     (when config
-      ;; fixme: define/use cffi enums for these constants
       (let ((xpm (glop-xlib::x-composite-name-window-pixmap xd (win w))))
         (format t "window ~x geometry: ~s~%"
                 (win w)
-                (multiple-value-list (glop-xlib::x-get-geometry xd (win w))))
+                (glop-xlib::x-get-geometry xd (win w)))
         (format t "pixmap geometry: ~s~%"
-                (multiple-value-list (glop-xlib::x-get-geometry xd xpm)))
+                (glop-xlib::x-get-geometry xd xpm))
 
         (format t "~&xpm = ~x~%" xpm)
         (glop-xlib:x-flush xd)
