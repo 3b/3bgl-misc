@@ -37,12 +37,15 @@
             :components ((:file "package")
                          (:file "ir")
                          (:file "walker")
-                         (:file "glsl-base")
                          (:file "types")
+                         (:file "infer")
+                         (:file "glsl-base")
+                         (:file "cl-functions")
                          (:file "glsl420")
                          (:file "printer")
                          (:file "compiler")
-                         (:file "utils")))
+                         (:file "utils")
+))
    (:module "model-viewer"
     :serial t
     :components ((:file "package")
