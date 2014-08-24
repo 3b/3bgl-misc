@@ -42,6 +42,7 @@
                          (:file "glsl-base")
                          (:file "cl-functions")
                          (:file "glsl420")
+                         (:file "finalize-inference")
                          (:file "printer")
                          (:file "compiler")
                          (:file "utils")
