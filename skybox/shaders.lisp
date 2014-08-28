@@ -39,7 +39,6 @@
   (eye-dir :vec3))
 
 (defun vertex ()
-  (declare (values))
   (if (> foo 0)
       (progn
         (setf (@ outs eye-dir)  (* (vec3 1 1 1) (vec3 uv)))
@@ -54,16 +53,13 @@
 
 
 (defun rayleigh-phase (cos-theta)
-  (declare (:float cos-theta) (values :float))
   ;; may need to divide result by 4pi?
   (return (* (/ 3.0 4.0)
              (+ 1 (* cos-theta cos-theta)))))
 
 (defun mie-phase-cs (cos-theta g)
   ;; Cornette/Shanks approx
-  (declare (:float cos-theta g) (values :float))
   (let ((g2 (pow g 2.0)))
-    (declare (:float g2))
     (return
       (* (/ (* 3.0 (- 1 g2))
            (* 2.0 (+ 2 g2) 4 3.141592653589793))
@@ -72,22 +68,17 @@
 
 (defun mie-phase-hg (cos-theta g)
   ;; Henyey/Greenstein
-  (declare (:float cos-theta g) (values :float))
   (let ((g2 (pow g 2.0)))
-    (declare (:float g2))
     (return
       (/ (- 1.0 g2)
          (* 4.0 3.141592653589793 (expt (+ 1.0 g2 (* -2.0 g cos-theta)) 1.5))))))
 
 ;; from "Physically Based Rendering"
 (defun phase-g-to-k (g)
-  (declare (:float g) (values :float))
   (return (- (* 1.55 g) (* 0.55 g g g))))
 
 (defun mie-phase-schlick (cos-theta k)
-  (declare (:float cos-theta k) (values :float))
   (let ((tmp (- 1 (* k cos-theta))))
-    (declare (:float tmp))
     (return
       (/ (- 1 (* k k))
          (* 4 3.141592653589793
@@ -118,13 +109,11 @@
   ;; returns distance along DIR from START of (last) intersection with
   ;; atmosphere
   ;; returns <=0 for no intersection
-  (declare (values :float) (:vec3 start dir))
   (let* ((a 1.0)
          ;; possibly should optimize for sun at +z?
          (b (* 2 (dot start dir)))
          (c (- (dot start start) +atmosphere-height-sq+))
          (discriminant (- (* b b) (* 4 a c))))
-    (declare (:float a b c discriminant))
     (when (< discriminant 0.0)
       ;; outside atmosphere, no intersection
       (return -2.0))
@@ -138,7 +127,6 @@
            (t1 (/ q (* 2 a)))
            (t2 (/ (* 2 c) q))
            (max (max t1 t2)))
-      (declare (:float q t1 t2 max))
       ;; if max < 0, we are outside atmosphere, looking away,
       ;; otherwise we can see atmosphere, assume we are inside for now
       ;; (so '(min t1 t2)' is distance to edge of atmosphere behind
@@ -150,9 +138,6 @@
 
 (defun calculate-sunlight (eye-pos view-dir sun-dir
                            view-steps sun-steps)
-  (declare (values :vec3)
-           (:vec3 eye-pos view-dir sun-dir)
-           (:int view-steps sun-steps))
   (let* ((view-dist (intersect-atmosphere eye-pos view-dir))
          (view-step-length (/ view-dist view-steps))
          (view-step (* view-dir view-step-length))
@@ -162,9 +147,6 @@
          (mie (vec3 0.0 0.0 0.0))
          (view-depth-rayleigh 0.0)
          (view-depth-mie 0.0))
-    (declare (:float view-dist view-step-length
-                     view-depth-rayleigh view-depth-mie)
-             (:vec3 view-step view-sample rayleigh mie))
     (when (<= view-dist 0)
       (return (vec3 1.0 1.0 0.0)))
     (dotimes (v (- view-steps 1))
@@ -181,11 +163,6 @@
                     (exp (/ view-sample-height +rayleigh-scale-height+))))
              (hm (* view-step-length
                     (exp (/ view-sample-height +mie-scale-height+)))))
-        (declare (:float view-sample-height
-                         sun-dist sun-step-length
-                         sun-depth-rayleigh sun-depth-mie
-                         hr hm)
-                 (:vec3 sun-step sun-sample))
 
         ;; fixme: decide if this should handle hitting ground or not?
         ;; probably not, since we would want to hit actual ground rather than
@@ -199,7 +176,6 @@
           (incf sun-sample sun-step)
           (let* ((l (length sun-sample))
                  (sun-sample-height (min 0.0 (- +surface-height+ l))))
-            (declare (:float l sun-sample-height))
             #++(when (< l +surface-height+)
               (setf sun-sample-height 0.0))
 
@@ -214,7 +190,6 @@
                               (+ sun-depth-rayleigh view-depth-rayleigh))
                            (* +mie-scattering+ 1.5
                               (+ sun-depth-mie view-depth-mie)))))))
-          (declare (:vec3 attenuation))
           (incf rayleigh (* hr attenuation))
           (incf mie (* hm attenuation)))))
     ;;(cos (* 0.53 pi 1/180))0.9999572167930806d0
@@ -252,7 +227,6 @@
 
 
 (defun fragment ()
-  (declare (values))
   (setf out-color (vec4 (calculate-sunlight (vec3 0.0  +surface-height+ 0.0)
                                             (normalize (@ ins eye-dir))
                                             (normalize light-dir)
