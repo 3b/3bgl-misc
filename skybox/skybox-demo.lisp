@@ -136,10 +136,11 @@
 (defmethod key-down :after ((w skybox-demo) k)
   (case k
     ((#\r :r)
-     (setf (program w)
-           (3bgl-shaders::reload-program (program w)
-                                         'skybox-shaders::vertex
-                                         'skybox-shaders::fragment)))
+     (time
+      (setf (program w)
+            (3bgl-shaders::reload-program (program w)
+                                          'skybox-shaders::vertex
+                                          'skybox-shaders::fragment))))
     (:n
      #++(setf (basecode::projection-fov w) 70)
      (print (basecode::freelook-camera-offset w))
