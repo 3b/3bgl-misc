@@ -45,8 +45,8 @@
                          (:file "finalize-inference")
                          (:file "printer")
                          (:file "compiler")
-                         (:file "utils")
-))
+                         (:file "api")
+                         (:file "utils")))
    (:module "model-viewer"
     :serial t
     :components ((:file "package")

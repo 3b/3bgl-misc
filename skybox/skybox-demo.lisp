@@ -3,9 +3,10 @@
 (in-package #:skybox-demo)
 
 (defclass skybox-demo (basecode-glop perspective-projection basecode-clear
-                 fps-graph basecode-draw-ground-plane
-                 freelook-camera
-                 basecode-exit-on-esc)
+                       basecode-draw-ground-plane
+                       freelook-camera
+                       basecode-exit-on-esc
+                       fps-graph)
   ((program :accessor program :initform nil))
   (:default-initargs :look-at-eye '(3 2 15)))
 
@@ -24,7 +25,32 @@
 ;; fixme: don't duplicate constant between this and shader
 (defconstant +surface-height+ 6360e3) ;; should match constant in shaders.lisp
 
+
+(defparameter *modified-shader-functions* nil)
+(defun modified-shader-hook (modified)
+  (setf *modified-shader-functions*
+        (union modified *modified-shader-functions*)))
+
+(pushnew 'modified-shader-hook 3bgl-shaders::*modified-function-hook*)
+
+(defun recompile-modified-shaders (w)
+  ;; fixme: this needs a lock, since it could be modified from another thread
+  ;; for now at least try to minimize chance of seeing multiple states
+  (let ((m (shiftf *modified-shader-functions* nil)))
+    (when (and (program w)
+               (or (member 'skybox-shaders::vertex m)
+                   (member 'skybox-shaders::fragment m)))
+      (format t "~%recompiling shader program for changes in functions:~&  ~a~%"
+              m)
+      (time
+       (setf (program w)
+             (3bgl-shaders::reload-program (program w)
+                                           'skybox-shaders::vertex
+                                           'skybox-shaders::fragment))))))
+
+
 (defmethod basecode-draw ((w skybox-demo))
+  (recompile-modified-shaders w)
 ;  (gl:flush)
 ;  (gl:finish)
 ;  (sleep 0.03)
