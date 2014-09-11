@@ -28,18 +28,21 @@
 
 (defparameter *modified-shader-functions* nil)
 (defun modified-shader-hook (modified)
+  (format t "saw modified functions ~s~%" modified)
   (setf *modified-shader-functions*
         (union modified *modified-shader-functions*)))
 
 (pushnew 'modified-shader-hook 3bgl-shaders::*modified-function-hook*)
 
 (defun recompile-modified-shaders (w)
-  ;; fixme: this needs a lock, since it could be modified from another thread
-  ;; for now at least try to minimize chance of seeing multiple states
-  (let ((m (shiftf *modified-shader-functions* nil)))
-    (when (and (program w)
-               (or (member 'skybox-shaders::vertex m)
-                   (member 'skybox-shaders::fragment m)))
+  (let* ((m *modified-shader-functions*)
+         (vf (member 'skybox-shaders::vertex m))
+         (ff (member 'skybox-shaders::fragment m)))
+    (when (or (and (program w) (or vf ff))
+              (and vf ff))
+      ;; fixme: this needs a lock, since it could be modified from
+      ;; another thread
+      (setf *modified-shader-functions* nil)
       (format t "~%recompiling shader program for changes in functions:~&  ~a~%"
               m)
       (time

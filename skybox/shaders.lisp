@@ -3,6 +3,8 @@
   (:shadowing-import-from #:glsl #:defun #:defconstant))
 (cl:in-package #:skybox-shaders)
 
+#++
+(remhash *package* glsl::*package-environments*)
 ;; vertex attributes
 (input position :vec4 :location 0)
 (input uv :vec3 :location 1)
@@ -84,7 +86,6 @@
          (* 4 3.141592653589793
             tmp tmp)))))
 
-
 ;; from "Efficient Rendering of Atmospheric Scattering" and "Precomputed Atmospheric Scattering"
 ;; by way of http://www.scratchapixel.com/lessons/3d-advanced-lessons/simulating-the-colors-of-the-sky/atmospheric-scattering/
 ;; @ 680nm, 550nm, 440nm
@@ -102,8 +103,8 @@
 (defconstant +mie-scale-height+ 1200 :float)
 
 (defconstant +surface-height+ 6360e3 :float)
-(defconstant +atmosphere-height+ 6420e3 :float)
-(defconstant +atmosphere-height-sq+ (expt 6420e3 2.0) :float)
+(defconstant +atmosphere-height+ (+ +surface-height+ 10000.0) :float)
+(defconstant +atmosphere-height-sq+ (expt +atmosphere-height+ 2) :float)
 
 (defun intersect-atmosphere (start dir)
   ;; returns distance along DIR from START of (last) intersection with
