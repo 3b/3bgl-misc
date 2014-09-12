@@ -2,7 +2,8 @@
   :depends-on (alexandria cl-glut cl-glu sb-cga zpb-ttf
                           glop classimp static-vectors
                           opticl com.gigamonkeys.binary-data
-                          split-sequence parse-number)
+                          split-sequence parse-number
+                          3bgl-shader)
   :serial t
   :components
   ((:module "math"
@@ -32,21 +33,6 @@
             :components ((:file "package")
                          (:file "quadratic")
                          (:file "spline-demo")))
-   (:module "shader"
-            :serial t
-            :components ((:file "package")
-                         (:file "ir")
-                         (:file "walker")
-                         (:file "types")
-                         (:file "infer")
-                         (:file "glsl-base")
-                         (:file "cl-functions")
-                         (:file "glsl420")
-                         (:file "finalize-inference")
-                         (:file "printer")
-                         (:file "compiler")
-                         (:file "api")
-                         (:file "utils")))
    (:module "model-viewer"
     :serial t
     :components ((:file "package")
