@@ -134,8 +134,14 @@
       (end-primitive))))
 
 (defun fragment ()
-  (setf out-color (@ ins color))
-  #++(setf out-color (vec4 1 0 1 1)))
+  (setf out-color (* (@ ins color)
+                     2
+                     (clamp
+                      (dot (@ ins normal)
+                           (normalize (vec3 1 1.5 -2)))
+                      0.2 1.0)))
+  (setf (.a out-color) 1)
+)
 
 
 

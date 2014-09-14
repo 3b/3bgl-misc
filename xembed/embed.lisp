@@ -38,6 +38,20 @@
     (call-next-method)))
 
 
+(defmethod basecode::basecode-reshape :after ((w basecode-embed-helper))
+  ;; resize input-window to match parent
+  (format t "resize input helper to ~sx~s~%"
+          (basecode::width w) (basecode::height w))
+  (when (input-window w)
+    (let* ((xd (glop:x11-window-display (basecode::%glop-window w)))
+           (iw (input-window w)))
+      (glop-xlib:x-set-geometry xd
+                                iw
+                                0 0
+                                (basecode::width w)
+                                (basecode::height w))
+      (glop-xlib::x-sync xd nil))))
+
 
 
 
