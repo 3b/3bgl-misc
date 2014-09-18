@@ -59,6 +59,16 @@
     :components ((:file "package")
                  (:file "shaders")
                  #++(:file "skybox-demo")))
+   #+unix
+   (:module "xembed"
+    :serial t
+    :components ((:file "embed")
+                 (:file "pixel-cube-shader")))
+   #+unix
+   (:module "livecode"
+    :serial t
+    :components ((:file "package")))
+
    #++(:module "ttf"
             :serial t
             :components
