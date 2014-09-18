@@ -3,7 +3,7 @@
                           glop classimp static-vectors
                           opticl com.gigamonkeys.binary-data
                           split-sequence parse-number
-                          3bgl-shader)
+                          mathkit 3bgl-shader)
   :serial t
   :components
   ((:module "math"
