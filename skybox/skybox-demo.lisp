@@ -6,19 +6,10 @@
                        basecode-draw-ground-plane
                        freelook-camera
                        basecode-exit-on-esc
-                       fps-graph)
+                       fps-graph
+                       basecode-shader-helper::basecode-shader-helper)
   ((program :accessor program :initform nil))
   (:default-initargs :look-at-eye '(3 2 15)))
-
-#++
-(defmethod run-main-loop :around ((w skybox-demo))
-  (setf (program w) (3bgl-shaders::reload-program
-                     (program w)
-                     'skybox-shader::vertex
-                     'skybox-shader::fragment)
-        ;(fbo w) (make-instance 'skybox-fbo)
-        )
-  (call-next-method))
 
 (defparameter *w* nil)
 
@@ -26,34 +17,7 @@
 (defconstant +surface-height+ 6360e3) ;; should match constant in shaders.lisp
 
 
-(defparameter *modified-shader-functions* nil)
-(defun modified-shader-hook (modified)
-  (format t "saw modified functions ~s~%" modified)
-  (setf *modified-shader-functions*
-        (union modified *modified-shader-functions*)))
-
-(pushnew 'modified-shader-hook 3bgl-shaders::*modified-function-hook*)
-
-(defun recompile-modified-shaders (w)
-  (let* ((m *modified-shader-functions*)
-         (vf (member 'skybox-shaders::vertex m))
-         (ff (member 'skybox-shaders::fragment m)))
-    (when (or (and (program w) (or vf ff))
-              (and vf ff))
-      ;; fixme: this needs a lock, since it could be modified from
-      ;; another thread
-      (setf *modified-shader-functions* nil)
-      (format t "~%recompiling shader program for changes in functions:~&  ~a~%"
-              m)
-      (time
-       (setf (program w)
-             (3bgl-shaders::reload-program (program w)
-                                           'skybox-shaders::vertex
-                                           'skybox-shaders::fragment))))))
-
-
 (defmethod basecode-draw ((w skybox-demo))
-  (recompile-modified-shaders w)
 ;  (gl:flush)
 ;  (gl:finish)
 ;  (sleep 0.03)
@@ -98,9 +62,9 @@
 
                         ))
             (eye-pos (basecode::freelook-camera-position w)))
-        (gl:use-program p1)
-        (3bgl-shaders::uniformfv p1 "lightDir" light-dir)
-        (3bgl-shaders::uniformfv p1 "eyePos" eye-pos)
+        (3bgl-shaders::use-program p1)
+        (setf (3bgl-shaders::uniform p1 'skybox-shaders::light-dir) light-dir)
+        (setf (3bgl-shaders::uniform p1 'skybox-shaders::eye-pos) eye-pos)
         ;; translate eye and light into coordinate space where
         ;; sun is on +z axis, and eye is on xz plane on surface of planet
         (let* ((cos (min 1.0 (sb-cga:dot-product light-dir
@@ -109,15 +73,16 @@
                (eye-pos-planet (sb-cga:vec (* sin +surface-height+)
                                            0.0
                                            (* cos +surface-height+))))
-         (3bgl-shaders::uniformfv p1 "eyePosPlanet" eye-pos-planet))
-        (3bgl-shaders::uniform-matrix p1 "mv"
-                                      (basecode::freelook-camera-modelview w))
-        (3bgl-shaders::uniform-matrix p1 "mvp"
-                                      (sb-cga:matrix*
-                                       (basecode::projection-matrix w)
-                                       (basecode::freelook-camera-modelview w)))))
+          (setf (3bgl-shaders::uniform p1 'skybox-shaders::eye-pos-planet)
+                eye-pos-planet))
+        (setf (3bgl-shaders::uniform p1 'skybox-shaders::mv)
+              (basecode::freelook-camera-modelview w))
+        (setf (3bgl-shaders::uniform p1 'skybox-shaders::mvp)
+              (sb-cga:matrix*
+               (basecode::projection-matrix w)
+               (basecode::freelook-camera-modelview w))))
 
-    (3bgl-shaders::uniformf (program w) "foo" 1)
+      (setf (3bgl-shaders::uniform (program w) 'skybox-shaders::foo) 1))
     (flet ((v (x y z)
              (let ((uv (sb-cga:transform-point
                         (sb-cga:vec (float
@@ -167,7 +132,9 @@
     ((#\r :r)
      (time
       (setf (program w)
-            (3bgl-shaders::reload-program (program w)
+            (3bgl-shaders::shader-program :vertex 'skybox-shaders::vertex
+                                          :fragment 'skybox-shaders::fragment)
+            #++(3bgl-shaders::reload-program (program w)
                                           'skybox-shaders::vertex
                                           'skybox-shaders::fragment))))
     (:n
