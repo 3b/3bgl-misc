@@ -59,6 +59,9 @@
     :components ((:file "package")
                  (:file "shaders")
                  #++(:file "skybox-demo")))
+   (:module "shader-helper"
+    :serial t
+    :components ((:file "shader-helper")))
    #+unix
    (:module "xembed"
     :serial t
