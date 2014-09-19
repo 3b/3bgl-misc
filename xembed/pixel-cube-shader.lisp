@@ -17,7 +17,7 @@
 (output out-color :vec4 :stage :fragment)
 
 
-(uniform utexture :sampler-2d :stage :geometry)
+(uniform utexture :sampler-2d)
 
 (uniform m :mat4)
 (uniform v :mat4)
@@ -32,6 +32,9 @@
 (uniform p3 :float)
 (uniform p4 :float)
 
+(uniform width :float)
+(uniform height :float)
+
 (interface varyings (:out (:vertex outs :geometry outs)
                      :in (:fragment ins :geometry (ins "ins" :*)))
   (uv :vec2)
@@ -42,6 +45,30 @@
 (defun vertex ()
   ;; just direct passthrough of input vertex coords
   (setf gl-position position))
+
+(defun vertex-instanced ()
+  ;; just direct passthrough of input vertex coords
+  (let ((ofs (vec4 (floor (/ gl-instance-id height))
+                   (mod gl-instance-id height)
+                   0.0
+                   0.0)))
+    (setf gl-position (+ position ofs))))
+
+(defun vertex-instanced-fallback ()
+  ;; just direct passthrough of input vertex coords
+  (let* ((ofs (vec4 (floor (/ gl-instance-id height))
+                    (mod gl-instance-id height)
+                    0.0
+                    0.0))
+         (pos (+ position ofs))
+         (color (texel-fetch utexture (ivec2 (.xy pos)) 0)))
+    mv ;; work around bug in .xyz
+    (setf gl-point-size (max 1.5
+                             (* (/ 40 (length (.xyz (* mv pos))))
+                                (length (.xyz color)))))
+    (setf gl-position (* mvp pos))
+    (setf (@ outs color) color
+          (@ outs normal) (vec3 1 1 1))))
 
 (defun geometry ()
   (declare (layout (:in :points) (:out :triangle-strip :max-vertices 16)))

@@ -198,3 +198,18 @@
        (with-continue-restart
          (basecode-draw w))
        (glop:swap-buffers (%glop-window w))))
+(defmethod run-nested-loop ((w basecode-glop) lock-and-var)
+  (declare (optimize debug))
+  (loop
+    until (and (bt:acquire-lock (car lock-and-var))
+               (prog1 (cdr lock-and-var)
+                 (bt:release-lock (car lock-and-var))))
+    do (format t "dispatch events~%")
+    while (glop:dispatch-events (%glop-window w) :blocking nil :on-foo nil)
+    do
+       (with-continue-restart
+         (format t "basecode draw~%")
+         (basecode-draw w))
+       (format t "swap buffers~%")
+       (glop:swap-buffers (%glop-window w)))
+  (format t "exit nested loop~%"))

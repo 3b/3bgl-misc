@@ -31,7 +31,8 @@
                             :exposure-mask
                             :key-press-mask :key-release-mask
                             :button-press-mask :button-release-mask
-                            :structure-notify-mask
+                            ;; structure-notify-mask confuses resizing
+                            ;; :structure-notify-mask
                             :visibility-change-mask
                             :pointer-motion-mask))
     (glop-xlib::x-map-raised (glop::x11-window-display xw) (input-window w))
@@ -143,6 +144,8 @@
    ;; pixel dimensions of this window should match size of child, so no specific
    ;; accessor for that
    (invert-y :accessor invert-y :initform nil)
+   ;; parent window, so we can tell it when child is mapped/unmapped
+   (parent :accessor parent :initarg :parent :initform nil)
    ;;; internal state:
    (win :accessor win :initform nil)
    (pix :accessor pix :initform nil)
@@ -273,9 +276,13 @@
     (cffi:with-foreign-objects ((win :int64) (revert :int))
       ;; todo: send XEMBED_WINDOW_DEACTIVATE or XEMBED_FOCUS_OUT or whatever
       (glop-xlib::x-get-input-focus xd win revert)
+      (format t "unfocus? ~s / ~s ? ~s / ~s~%"
+              (win w) (cffi:mem-aref win :int64)
+              (glop::x11-window-id w) (glop::x11-window-id xw))
       #++
       (format t "input focus = ~x (~x)~%" (cffi:mem-aref win :int64)  (win w))
-      (when (eql (win w) (cffi:mem-aref win :int64))
+      (when (or (eql (win w) (cffi:mem-aref win :int64))
+                (eql (glop:x11-window-id w) (cffi:mem-aref win :int64)))
         (glop-xlib::x-set-input-focus xd
                                       (glop::x11-window-id xw)
                                       2 ; reverttoparent
@@ -412,6 +419,9 @@
       ;; return true to indicate we resized
       t)))
 
+(defgeneric embedded-window-mapped (parent child))
+(defgeneric embedded-window-unmapped (parent child))
+
 (defmethod glop:on-event ((w glop-embedded)
                           (event glop::child-visibility-unobscured-event))
   (declare (optimize debug))
@@ -430,7 +440,9 @@
   (resize-to-fit-child w :child (glop::child event) :first (not (win w)))
   (setf (win w) (glop::child event))
 
-  (setf (child-state w) :mapped))
+  (setf (child-state w) :mapped)
+  (when (parent w)
+    (embedded-window-mapped (parent w) w))) 
 
 (defmethod glop:on-event((w glop-embedded)
                           (event glop::child-created-event))
@@ -452,7 +464,9 @@
 
   (cleanup-pixmaps w)
   (setf (win w) nil)
-  (setf (child-state w) :unmapped))
+  (setf (child-state w) :unmapped)
+  (when (parent w)
+    (embedded-window-unmapped (parent w) w)))
 
 
 (defmethod glop:on-event ((w glop-embedded)

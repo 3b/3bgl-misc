@@ -1,2 +1,2 @@
 (defpackage #:3bgl-livecode
-  (:use #:cl))
+  (:use #:cl #:basecode))
