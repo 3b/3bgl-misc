@@ -276,7 +276,7 @@
     (cffi:with-foreign-objects ((win :int64) (revert :int))
       ;; todo: send XEMBED_WINDOW_DEACTIVATE or XEMBED_FOCUS_OUT or whatever
       (glop-xlib::x-get-input-focus xd win revert)
-      (format t "unfocus? ~s / ~s ? ~s / ~s~%"
+      #++(format t "unfocus? ~s / ~s ? ~s / ~s~%"
               (win w) (cffi:mem-aref win :int64)
               (glop::x11-window-id w) (glop::x11-window-id xw))
       #++
