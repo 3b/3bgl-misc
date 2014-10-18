@@ -1,7 +1,7 @@
 (cl:defpackage #:3bgl-mesh-shaders
   (:use :cl :3bgl-glsl)
   (:shadowing-import-from #:3bgl-glsl
-                          #:defun #:defconstant))
+                          #:defun #:defconstant #:defmacro))
 
 (cl:in-package #:3bgl-mesh-shaders)
 

@@ -1,6 +1,6 @@
 (cl:defpackage #:skybox-shaders
   (:use :cl :3bgl-glsl)
-  (:shadowing-import-from #:3bgl-glsl #:defun #:defconstant))
+  (:shadowing-import-from #:3bgl-glsl #:defun #:defconstant #:defmacro))
 (cl:in-package #:skybox-shaders)
 
 #++
