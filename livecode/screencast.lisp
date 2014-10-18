@@ -199,65 +199,48 @@
   (incf *teapot-rotation-z* 0.03))
 
 (defun main-draw (w)
-  (declare (ignorable w))
-  (let ((*in-main-draw* t))
-    (when (teapot-shader-index w)
-      (let ((p1 (aref (teapot-shaders w) (teapot-shader-index w)))
-            (width (basecode::width w))
-            (height (basecode::height w)))
-        (gl:with-pushed-matrix* (:projection)
-          (gl:load-identity)
-          (glu:perspective 45 (/ width height)
-                           0.5 20)
-          (gl:with-pushed-matrix* (:modelview)
-            (gl:load-identity)
+  (declare (optimize debug))
+  ;; quick example of running debugger inside scene being debugged...
+  (when (teapot-shader-index w)
+      (let ((p1 (aref (teapot-shaders w) (teapot-shader-index w))))
+        (flet ((radians (x) (coerce (/ (* pi x) 180) 'single-float))
+               (v (x y z) (sb-cga:vec (float x 1.0)
+                                      (float y 1.0)
+                                      (float z 1.0))))
+          (let* ((m (sb-cga:matrix*
+                     ;; some versions of glut transform the teapot
+                     ;; with gl matrix, so duplicate that here
+                     ;; (might not look right on newest freeglut though)
+                     (sb-cga:rotate-around (v 1 0 0)
+                                           (radians 270))
+                     ;; lets make the teapot bigger...
+                     (sb-cga:scale* (* 1.3 1.75) (* 1.3 1.75) (* 1.3 1.75)) ;; fixed
+                     (sb-cga:translate (v 0 0 -1.5))))
+                 (v (sb-cga:matrix*
+                     (sb-cga:translate (v 4 2 4))
+                     (sb-cga:rotate-around (v 1 0 0)
+                                           (radians *teapot-rotation-x*))
+                     (sb-cga:rotate-around (v 0 1 0)
+                                           (radians *teapot-rotation-y*))
+                     (sb-cga:rotate-around (v 0 0 1)
+                                           (radians *teapot-rotation-z*))))
+                 (mv (sb-cga:matrix* (basecode::freelook-camera-modelview w)
+                                     v m))
+                 (mvp (sb-cga:matrix* (basecode::projection-matrix w)
+                                      mv)))
+            (when p1
+              (setf (3bgl-shaders::uniform p1 'screencast-shaders::time)
+                    (float
+                     (/ (get-internal-real-time)
+                        internal-time-units-per-second)))
+              (setf (3bgl-shaders::uniform p1 'screencast-shaders::mv) mv)
+              (setf (3bgl-shaders::uniform p1 'screencast-shaders::mvp) mvp)
+              (setf (3bgl-shaders::uniform p1 'screencast-shaders::normal-Matrix)
+                    mv)
+              (3bgl-shaders::use-program p1))))
 
-            (flet ((radians (x) (coerce (/ (* pi x) 180) 'single-float))
-                   (v (x y z) (sb-cga:vec (float x 1.0)
-                                          (float y 1.0)
-                                          (float z 1.0))))
-              (let* ((m (sb-cga:matrix*
-                         ;; some versions of glut transform the teapot
-                         ;; with gl matrix, so duplicate that here
-                         ;; (might not look right on newest freeglut though)
-                         (sb-cga:rotate-around (v 1 0 0)
-                                               (radians 270))
-                         (sb-cga:scale* (* 1.3 0.75) (* 1.3 0.75) (* 1.3 0.75))
-                         (sb-cga:translate (v 0 0 -1.5))))
-                     (v (sb-cga:matrix*
-                         (sb-cga:translate (v 0 2 0))
-                         (sb-cga:rotate-around (v 1 0 0)
-                                               (radians *teapot-rotation-x*))
-                         (sb-cga:rotate-around (v 0 1 0)
-                                               (radians *teapot-rotation-y*))
-                         (sb-cga:rotate-around (v 0 0 1)
-                                               (radians *teapot-rotation-z*))))
-                     (p (kit.math:perspective-matrix 45
-                                                     (/ width height)
-                                                     0.5 20))
-                     (mv (sb-cga:matrix* (basecode::freelook-camera-modelview w)
-                                         v m))
-                     (mvp (sb-cga:matrix* (basecode::projection-matrix w)
-                                          mv)))
-                (gl:load-matrix v)
-                (gl:matrix-mode :projection)
-                (gl:load-matrix p)
-                (gl:matrix-mode :modelview)
-                (when p1
-                 (setf (3bgl-shaders::uniform p1 'screencast-shaders::time)
-                       (float
-                        (/ (get-internal-real-time)
-                           internal-time-units-per-second)))
-                 (setf (3bgl-shaders::uniform p1 'screencast-shaders::mv) mv)
-                 (setf (3bgl-shaders::uniform p1 'screencast-shaders::mvp) mvp)
-                 (setf (3bgl-shaders::uniform p1 'screencast-shaders::normal-Matrix)
-                       mv)
-                 (3bgl-shaders::use-program p1))))
-
-            (draw-teapot)
-            (gl:use-program 0))))
-
-)))
+        (draw-teapot)
+        (gl:use-program 0))))
 
 (cffi:defcfun ("glXGetCurrentContext" glx-get-current-context) glop-glx::glx-context)
 (defparameter *in-dispatch-events* nil)
@@ -316,7 +299,9 @@
         (draw-embed w (fallback-shader w))
         (let ((*in-embed-draw* t))
           (draw-embed w (cube-shader w))))
-    (main-draw w)))
+    (unless *in-main-draw*
+      (let ((*in-main-draw* t))
+        (main-draw w)))))
 
 (defparameter *focus* nil)
 (defmethod key-up :after ((w screencast) k)
