@@ -11,8 +11,12 @@
    ;; textures
    ;; need:
    ;;   fft of data = 2 component f16?
+   ;;      -- probably need 32bits for 3d, could easily go beyond
+   ;;         range of fp16 at 256^3
    ;;   temp space = same
    ;;   convolution kernels = 2 x 2 component f16?
+   ;;      -- scaled to sum to 1, so might be able to use normalized
+   ;;         s16 instead?
    ;;   real data = 2 x 1 component f16?
    ;;     possibly can reuse one of the fft buffers?
    (texture1 :accessor texture1 :initform nil)
@@ -49,8 +53,8 @@
 ;;  - possibly want an extra copy, to allow interpolation or continuous
 ;;    time steps?
 
-(defparameter *wx* 512)
-(defparameter *wy* 512) ;; wy/wz should be same for now
+(defparameter *wx* 256)
+(defparameter *wy* 256) ;; wy/wz should be same for now
 (defparameter *wz* *wy*)
 
 (defparameter *w* nil)
@@ -80,14 +84,14 @@
     (gl:bind-texture :texture-2d tex)
     (gl:tex-parameter :texture-2d :texture-min-filter :linear)
     (gl:tex-parameter :texture-2d :texture-mag-filter :linear)
-    (gl:tex-image-2d :texture-2d 0 :rg32f w h 0 :rg :float data)
+    (gl:tex-image-2d :texture-2d 0 :rg16f w h 0 :rg :float data)
     tex))
 
 
 (defun fft-pass (p source dest x y z)
   ;; assumes twiddle is bound to imageunit 2
-  (%gl:bind-image-texture 0 source 0 nil 0 :read-only :rg32f)
-  (%gl:bind-image-texture 1 dest 0 nil 0 :write-only :rg32f)
+  (%gl:bind-image-texture 0 source 0 nil 0 :read-only :rg16f)
+  (%gl:bind-image-texture 1 dest 0 nil 0 :write-only :rg16f)
   (setf (3bgl-shaders::uniform p 'smoothlife-shaders::tex)
         0)
   (setf (3bgl-shaders::uniform p 'smoothlife-shaders::out1)
@@ -99,9 +103,9 @@
   (%gl:dispatch-compute x y z))
 
 (defun convolve-pass (p kernel source dest x y z)
-  (%gl:bind-image-texture 0 source 0 nil 0 :read-only :rg32f)
-  (%gl:bind-image-texture 1 dest 0 nil 0 :write-only :rg32f)
-  (%gl:bind-image-texture 3 kernel 0 nil 0 :read-only :rg32f)
+  (%gl:bind-image-texture 0 source 0 nil 0 :read-only :rg16f)
+  (%gl:bind-image-texture 1 dest 0 nil 0 :write-only :rg16f)
+  (%gl:bind-image-texture 3 kernel 0 nil 0 :read-only :rg16f)
   (setf (3bgl-shaders::uniform p 'smoothlife-shaders::tex)
         0)
   (setf (3bgl-shaders::uniform p 'smoothlife-shaders::out1)
@@ -113,9 +117,9 @@
   (%gl:dispatch-compute x y z))
 
 (defun rules-pass (p source1 source2 dest x y z)
-  (%gl:bind-image-texture 0 source1 0 nil 0 :read-only :rg32f)
-  (%gl:bind-image-texture 2 source2 0 nil 0 :read-only :rg32f)
-  (%gl:bind-image-texture 1 dest 0 nil 0 :write-only :rg32f)
+  (%gl:bind-image-texture 0 source1 0 nil 0 :read-only :rg16f)
+  (%gl:bind-image-texture 2 source2 0 nil 0 :read-only :rg16f)
+  (%gl:bind-image-texture 1 dest 0 nil 0 :write-only :rg16f)
   (setf (3bgl-shaders::uniform p 'smoothlife-shaders::rule-in1)
         0)
   (setf (3bgl-shaders::uniform p 'smoothlife-shaders::out1)
@@ -127,7 +131,7 @@
   (%gl:dispatch-compute x y z))
 
 (defun count-pass (p counter source1 x y z)
-  (%gl:bind-image-texture 0 source1 0 nil 0 :read-only :rg32f)
+  (%gl:bind-image-texture 0 source1 0 nil 0 :read-only :rg16f)
   (%gl:bind-buffer-base :atomic-counter-buffer 0 counter)
   (setf (3bgl-shaders::uniform p 'smoothlife-shaders::tex)
         0)
@@ -146,21 +150,15 @@
                                         :initial-element 0.0)))
 
         (loop for i below *wy*
-              for j = (floor i 64)
-              for k = (mod i 64)
-              for l = (mod k 8)
-              for m = (floor k 8)
+              for j = (floor i 16)
+              for k = (mod i 16)
               for x = (* i 2)
-              for x2 = (+ 1024 (* (+ j (* 8 (+ l (* m 8)))) 2))
-              for t1 = (exp (complex 0 (* -2/512 pi j k)))
-              for t2 = (exp (complex 0 (* -2/64 pi l m)))
+              for t1 = (exp (complex 0 (* -2/256 pi j k)))
               do (setf (aref d x) (float (realpart t1) 1.0)
-                       (aref d (1+ x)) (float (imagpart t1) 1.0)
-                       (aref d x2) (float (realpart t2) 1.0)
-                       (aref d (1+ x2)) (float (imagpart t2) 1.0)))
+                       (aref d (1+ x)) (float (imagpart t1) 1.0)))
         (gl:bind-texture :texture-2d (twiddle w))
-        (gl:tex-image-2d :texture-2d 0 :rg32f 512 2 0 :rg :float d)))
-    (%gl:bind-image-texture 2 (twiddle w) 0 nil 0 :read-only :rg32f)
+        (gl:tex-image-2d :texture-2d 0 :rg16f 256 2 0 :rg :float d)))
+    (%gl:bind-image-texture 2 (twiddle w) 0 nil 0 :read-only :rg16f)
     (unless (texture1 w)
       (setf (texture1 w) (gen-texture)))
     (unless (texture2 w)
@@ -189,15 +187,15 @@
                    do (loop for j below *wy*
                             do (setf (aref buf (* 2 (+ i (* j *wx*))))
                                      (float (aref r (floor j 7)) 1.0))))
-            (gl:bind-texture :texture-2d (texture1 w))
-            (gl:tex-image-2d :texture-2d 0 :rg32f *wx* *wy* 0 :rg :float buf)
-            (gl:bind-texture :texture-2d 0)))
+             (gl:bind-texture :texture-2d (texture1 w))
+             (gl:tex-image-2d :texture-2d 0 :rg16f *wx* *wy* 0 :rg :float buf)
+             (gl:bind-texture :texture-2d 0)))
       (unless (kernel1 w)
         (setf (kernel1 w) (gen-texture))
         (unless (kernel2 w)
           (setf (kernel2 w) (gen-texture)))
         (assert (and (texture1 w) (texture2 w) (kernel1 w) (kernel2 w)))
-        (let* ((ra 21.0)
+        (let* ((ra (/ 21.0 2))
                (ri (/ ra 3.0))
                (aa 1.0)
                (area1 (coerce (* pi (expt ri 2)) 'single-float))
@@ -237,39 +235,41 @@
                                     sum (* area v1) )))))
             ;;(filltex ri area1)
             (print ri)
-            (filltex ri 154.55185) ;; fixme: calculate areas from radii
-            ;;(filltex ri 1.0)
+            ;;(filltex ri 154.55185) ;; fixme: calculate areas from radii
+            (filltex ri 38.85737)
             (gl:bind-texture :texture-2d (texture1 w))
-            (gl:tex-image-2d :texture-2d 0 :rg32f *wx* *wy* 0 :rg :float buf)
+            (gl:tex-image-2d :texture-2d 0 :rg16f *wx* *wy* 0 :rg :float buf)
             (gl:bind-texture :texture-2d 0)
-            (fft-pass (fft-x w) (texture1 w) (texture2 w) 512/8 1 1)
-            (fft-pass (fft-y w) (texture2 w) (kernel1 w) 512/8 1 1)
+            (fft-pass (fft-x w) (texture1 w) (texture2 w) 256/16 1 1)
+            (fft-pass (fft-y w) (texture2 w) (kernel1 w) 256/16 1 1)
             ;;(filltex ra area2 ri)
             (print ra)
-            (filltex ra 1231.231 #++ area2 ri)
+            ;;(filltex ra 1231.231 #++ area2 ri)
+            (filltex ra 308.53482 ri)
             (gl:bind-texture :texture-2d (texture1 w))
-            (gl:tex-image-2d :texture-2d 0 :rg32f *wx* *wy* 0 :rg :float buf)
+            (gl:tex-image-2d :texture-2d 0 :rg16f *wx* *wy* 0 :rg :float buf)
             (gl:bind-texture :texture-2d 0)
-            (fft-pass (fft-x w) (texture1 w) (texture2 w) 512/8 1 1)
-            (fft-pass (fft-y w) (texture2 w) (kernel2 w) 512/8 1 1)
-            (init-world buf)))))
+            (fft-pass (fft-x w) (texture1 w) (texture2 w) 256/16 1 1)
+            (fft-pass (fft-y w) (texture2 w) (kernel2 w) 256/16 1 1)
+            (init-world buf))))
 
-    (when (eql *step* :auto)
-      (let ((c 1))
-        (gl:bind-buffer :atomic-counter-buffer (counter w))
-        (cffi:with-foreign-object (x :uint32)
-          (%gl:get-buffer-sub-data :atomic-counter-buffer 0 4 x)
-          (setf c (cffi:mem-aref x :uint32))
-          (setf (cffi:mem-aref x :uint32) 0)
-          (%gl:buffer-sub-data :atomic-counter-buffer 0 4 x))
-        (gl:bind-buffer :atomic-counter-buffer 0)
-        (when (zerop c)
-          (let ((buf (make-array (* *wx* *wy* 2) :element-type 'single-float
-                                                 :initial-element 0.0))
-                #++(*random-state* (make-random-state nil)))
-            (init-world buf)))))
+      (when (eql *step* :auto)
+        (let ((c 1))
+          (gl:bind-buffer :atomic-counter-buffer (counter w))
+          (cffi:with-foreign-object (x :uint32)
+            (%gl:get-buffer-sub-data :atomic-counter-buffer 0 4 x)
+            (setf c (cffi:mem-aref x :uint32))
+            (setf (cffi:mem-aref x :uint32) 0)
+            (%gl:buffer-sub-data :atomic-counter-buffer 0 4 x))
+          (gl:bind-buffer :atomic-counter-buffer 0)
+          (when (zerop c)
+            (let ((buf (make-array (* *wx* *wy* 2) :element-type 'single-float
+                                                   :initial-element 0.0))
+                  #++(*random-state* (make-random-state nil)))
+              (init-world buf))))))
 
     (when *step*
+      (%gl:bind-image-texture 2 (twiddle w) 0 nil 0 :read-only :rg16f)
       (when (numberp *step*)
         (decf *step*))
       (when (eql *step* 0)
@@ -278,10 +278,10 @@
       (gl:bind-texture :texture-2d 0)
       ;; fft
       (fft-pass (getf (programs w) :fft-x)
-                (texture1 w) (texture3 w) 512/8 1 1)
+                (texture1 w) (texture3 w) 256/16 1 1)
       (gl:bind-texture :texture-2d 0)
       (fft-pass (getf (programs w) :fft-y)
-                (texture3 w) (texture1 w) 512/8 1 1)
+                (texture3 w) (texture1 w) 256/16 1 1)
 
       ;; convolve
       (convolve-pass (getf (programs w) :convolve)
@@ -294,30 +294,32 @@
       ;; ifft x2
       (gl:bind-texture :texture-2d 0)
       (fft-pass (getf (programs w) :ifft-x)
-                (texture3 w) (texture1 w) 512/8 1 1)
+                (texture3 w) (texture1 w) 256/16 1 1)
       (gl:bind-texture :texture-2d 0)
       (fft-pass (getf (programs w) :ifft-y)
-                (texture1 w) (texture3 w) 512/8 1 1)
+                (texture1 w) (texture3 w) 256/16 1 1)
 
       (gl:bind-texture :texture-2d 0)
       (fft-pass (getf (programs w) :ifft-x)
-                (texture2 w) (texture1 w) 512/8 1 1)
+                (texture2 w) (texture1 w) 256/16 1 1)
       (gl:bind-texture :texture-2d 0)
       (fft-pass (getf (programs w) :ifft-y)
-                (texture1 w) (texture2 w) 512/8 1 1)
+                (texture1 w) (texture2 w) 256/16 1 1)
 
 
       ;; rules
       (gl:bind-texture :texture-2d 0)
       (rules-pass (getf (programs w) :rules)
                   (texture2 w) (texture3 w) (texture1 w)
-                  512/32 512/32 1))
+                  256/32 256/32 1))
+
+
 
 
     (when (eql *step* :auto)
       (count-pass (getf (programs w) :count)
                   (counter w) (texture1 w)
-                  512/32 512/32 1))
+                  256/32 256/32 1))
     (gl:bind-texture :texture-2d (texture1 w))
     (gl:tex-parameter :texture-2d :texture-mag-filter :linear)
     (gl:use-program 0)
@@ -367,4 +369,3 @@
 
 (setf 3bgl-shaders::*print-shaders* t)
 ; (basecode-run (make-instance 'smoothlife))
-

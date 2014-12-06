@@ -5,162 +5,299 @@
 
 
 (uniform flag :int :location 0)
-(uniform tex :image-2d :location 1 :layout (:rg32f t))
+(uniform tex :image-2d :location 1 :layout (:rg16f t))
 (uniform out1 :image-2d :location 2
-                        :layout (:rg32f t))
+                        :layout (:rg16f t))
 (uniform kernel :image-2d :location 3
-                          :layout (:rg32f t))
+                          :layout (:rg16f t))
 
 ;; twiddle factors for FFT, x = element in FFT, y = pass
 ;; probably should move to local/constant once everything works?
-(uniform twiddle :image-2d :location 3 :layout (:rg32f t))
+(uniform twiddle :image-2d :location 3 :layout (:rg16f t))
 
-(uniform rule-in1 :image-2d :location 0 :layout (:rg32f t))
-(uniform rule-in2 :image-2d :location 1 :layout (:rg32f t))
+(uniform rule-in1 :image-2d :location 0 :layout (:rg16f t))
+(uniform rule-in2 :image-2d :location 1 :layout (:rg16f t))
 
 (uniform counter :atomic-uint :layout (:binding 0 :offset 0))
 
 (shared scratch (:float 8192))
 
 (defmacro scratch (x y stride offset &optional im)
- (print `(aref scratch (+ ,@(when im `(4096))
-                          ,x (* 8 (+ ,y
-                                     ,(if (eql stride 1)
-                                          offset
-                                          `(* ,stride ,offset))))))))
+  `(aref scratch (+ ,@(when im `(4096))
+                    ,x (* 16 (+ ,y
+                                ,(if (eql stride 1)
+                                     offset
+                                     `(* ,stride ,offset)))))))
 
 (defmacro scratch2 (x y stride offset)
-  `(vec2 (aref scratch (+ ,x (* 8 (+ ,y (* ,stride ,offset)))))
-         (aref scratch (+ 4096 ,x (* 8 (+ ,y (* ,stride ,offset)))))))
+  `(vec2 (aref scratch (+ ,x (* 16 (+ ,y (* ,stride ,offset)))))
+         (aref scratch (+ 4096 ,x (* 16 (+ ,y (* ,stride ,offset)))))))
 
-(defmacro fft8 (in out)
-  `(let* ((t00017 0.0)
-          (t00016 0.0)
-          (t00015 0.0)
-          (t00014 0.0)
-          (t00013 0.0)
-          (t00012 0.0)
-          (t00011 0.0)
-          (t00010 0.0)
-          (t00009 0.0)
-          (t00008 0.0)
-          (t00007 0.0)
-          (t00006 0.0)
-          (t00005 0.0)
-          (t00004 0.0)
-          (t00003 0.0)
-          (t00002 0.0)
-          (t00001 0.0)
-          (t00000 0.0)
-          (r001 (vec2 0 0))
-          (r000 (vec2 0 0)))
-     (setf r000 (,in 0))
-     (setf r001 (,in 4))
-     (setf t00000 (- (.y r000) (.y r001)))
-     (setf t00001 (- (.x r000) (.x r001)))
-     (setf t00002 (+ (.y r000) (.y r001)))
-     (setf t00003 (+ (.x r000) (.x r001)))
-     (setf r001 (,in 2))
-     (setf r000 (,in 6))
-     (setf t00004 (- (.x r001) (.x r000)))
-     (setf t00005 (+ t00000 t00004))
-     (setf t00006 (- t00000 t00004))
-     (setf t00004 (- (.y r001) (.y r000)))
-     (setf t00000 (- t00001 t00004))
-     (setf t00007 (+ t00001 t00004))
-     (setf t00004 (+ (.y r001) (.y r000)))
-     (setf t00001 (- t00002 t00004))
-     (setf t00008 (+ t00002 t00004))
-     (setf t00004 (+ (.x r001) (.x r000)))
-     (setf t00002 (- t00003 t00004))
-     (setf t00009 (+ t00003 t00004))
-     (setf r000 (,in 1))
-     (setf r001 (,in 5))
-     (setf t00004 (- (.y r000) (.y r001)))
-     (setf t00003 (* 0.70710677 t00004))
-     (setf t00010 (- (.x r000) (.x r001)))
-     (setf t00011 (fma -0.70710677 t00010 t00003))
-     (setf t00003 (* 0.70710677 t00010))
-     (setf t00010 (fma 0.70710677 t00004 t00003))
-     (setf t00003 (+ (.y r000) (.y r001)))
-     (setf t00004 (+ (.x r000) (.x r001)))
-     (setf r001 (,in 7))
-     (setf r000 (,in 3))
-     (setf t00012 (- (.y r001) (.y r000)))
-     (setf t00013 (* 0.70710677 t00012))
-     (setf t00012 (- (.x r001) (.x r000)))
-     (setf t00014 (* 0.70710677 t00012))
-     (setf t00012 (+ t00014 t00013))
-     (setf t00015 (- t00011 t00012))
-     (setf t00016 (- t00000 t00015))
-     (setf t00017 (+ t00000 t00015))
-     (setf t00015 (+ t00011 t00012))
-     (setf t00012 (- t00006 t00015))
-     (setf t00011 (+ t00006 t00015))
-     (setf t00015 (- t00014 t00013))
-     (setf t00013 (- t00010 t00015))
-     (setf t00014 (+ t00005 t00013))
-     (,out 7 t00016 t00014)
-     (setf t00014 (- t00005 t00013))
-     (,out 3 t00017 t00014)
-     (setf t00014 (+ t00010 t00015))
-     (setf t00015 (- t00007 t00014))
-     (,out 5 t00015 t00012)
-     (setf t00012 (+ t00007 t00014))
-     (,out 1 t00012 t00011)
-     (setf t00011 (+ (.y r001) (.y r000)))
-     (setf t00012 (- t00003 t00011))
-     (setf t00014 (- t00002 t00012))
-     (setf t00007 (+ t00002 t00012))
-     (setf t00012 (+ t00003 t00011))
-     (setf t00011 (- t00008 t00012))
-     (setf t00003 (+ t00008 t00012))
-     (setf t00012 (+ (.x r001) (.x r000)))
-     (setf t00008 (- t00004 t00012))
-     (setf t00002 (+ t00001 t00008))
-     (,out 6 t00014 t00002)
-     (setf t00002 (- t00001 t00008))
-     (,out 2 t00007 t00002)
-     (setf t00002 (+ t00004 t00012))
-     (setf t00012 (- t00009 t00002))
-     (,out 4 t00012 t00011)
-     (setf t00011 (+ t00009 t00002))
-     (,out 0 t00011 t00003)))
+(defmacro FFT16 (in out)
+  `(LET* ((T00035 0.0)
+          (T00034 0.0)
+          (T00033 0.0)
+          (T00032 0.0)
+          (T00031 0.0)
+          (T00030 0.0)
+          (T00029 0.0)
+          (T00028 0.0)
+          (T00027 0.0)
+          (T00026 0.0)
+          (T00025 0.0)
+          (T00024 0.0)
+          (T00023 0.0)
+          (T00022 0.0)
+          (T00021 0.0)
+          (T00020 0.0)
+          (T00019 0.0)
+          (T00018 0.0)
+          (T00017 0.0)
+          (T00016 0.0)
+          (T00015 0.0)
+          (T00014 0.0)
+          (T00013 0.0)
+          (T00012 0.0)
+          (T00011 0.0)
+          (T00010 0.0)
+          (T00009 0.0)
+          (T00008 0.0)
+          (T00007 0.0)
+          (T00006 0.0)
+          (T00005 0.0)
+          (T00004 0.0)
+          (T00003 0.0)
+          (T00002 0.0)
+          (T00001 0.0)
+          (T00000 0.0)
+          (R001 (vec2 0.0))
+          (R000 (vec2 0.0)))
+     (SETF R000 (,IN 0))
+     (SETF R001 (,IN 8))
+     (SETF T00000 (- (.Y R000) (.Y R001)))
+     (SETF T00001 (- (.X R000) (.X R001)))
+     (SETF T00002 (+ (.Y R000) (.Y R001)))
+     (SETF T00003 (+ (.X R000) (.X R001)))
+     (SETF R001 (,IN 4))
+     (SETF R000 (,IN 12))
+     (SETF T00004 (- (.X R001) (.X R000)))
+     (SETF T00005 (+ T00000 T00004))
+     (SETF T00006 (- T00000 T00004))
+     (SETF T00004 (- (.Y R001) (.Y R000)))
+     (SETF T00000 (- T00001 T00004))
+     (SETF T00007 (+ T00001 T00004))
+     (SETF T00004 (+ (.Y R001) (.Y R000)))
+     (SETF T00001 (- T00002 T00004))
+     (SETF T00008 (+ T00002 T00004))
+     (SETF T00004 (+ (.X R001) (.X R000)))
+     (SETF T00002 (- T00003 T00004))
+     (SETF T00009 (+ T00003 T00004))
+     (SETF R000 (,IN 2))
+     (SETF R001 (,IN 10))
+     (SETF T00004 (- (.Y R000) (.Y R001)))
+     (SETF T00003 (* 0.70710677 T00004))
+     (SETF T00004 (- (.X R000) (.X R001)))
+     (SETF T00010 (* 0.70710677 T00004))
+     (SETF T00004 (- T00003 T00010))
+     (SETF T00011 (+ T00010 T00003))
+     (SETF T00003 (+ (.Y R000) (.Y R001)))
+     (SETF T00010 (+ (.X R000) (.X R001)))
+     (SETF R001 (,IN 14))
+     (SETF R000 (,IN 6))
+     (SETF T00012 (- (.Y R001) (.Y R000)))
+     (SETF T00013 (* 0.70710677 T00012))
+     (SETF T00012 (- (.X R001) (.X R000)))
+     (SETF T00014 (* 0.70710677 T00012))
+     (SETF T00012 (+ T00014 T00013))
+     (SETF T00015 (- T00004 T00012))
+     (SETF T00016 (- T00000 T00015))
+     (SETF T00017 (+ T00000 T00015))
+     (SETF T00015 (+ T00004 T00012))
+     (SETF T00012 (- T00006 T00015))
+     (SETF T00004 (+ T00006 T00015))
+     (SETF T00015 (- T00014 T00013))
+     (SETF T00013 (- T00011 T00015))
+     (SETF T00014 (+ T00005 T00013))
+     (SETF T00006 (- T00005 T00013))
+     (SETF T00013 (+ T00011 T00015))
+     (SETF T00015 (- T00007 T00013))
+     (SETF T00011 (+ T00007 T00013))
+     (SETF T00013 (+ (.Y R001) (.Y R000)))
+     (SETF T00007 (- T00003 T00013))
+     (SETF T00005 (- T00002 T00007))
+     (SETF T00000 (+ T00002 T00007))
+     (SETF T00007 (+ T00003 T00013))
+     (SETF T00013 (- T00008 T00007))
+     (SETF T00003 (+ T00008 T00007))
+     (SETF T00007 (+ (.X R001) (.X R000)))
+     (SETF T00008 (- T00010 T00007))
+     (SETF T00002 (+ T00001 T00008))
+     (SETF T00018 (- T00001 T00008))
+     (SETF T00008 (+ T00010 T00007))
+     (SETF T00007 (- T00009 T00008))
+     (SETF T00010 (+ T00009 T00008))
+     (SETF R000 (,IN 1))
+     (SETF R001 (,IN 9))
+     (SETF T00008 (- (.Y R000) (.Y R001)))
+     (SETF T00009 (- (.X R000) (.X R001)))
+     (SETF T00001 (+ (.Y R000) (.Y R001)))
+     (SETF T00019 (+ (.X R000) (.X R001)))
+     (SETF R001 (,IN 5))
+     (SETF R000 (,IN 13))
+     (SETF T00020 (- (.X R001) (.X R000)))
+     (SETF T00021 (+ T00008 T00020))
+     (SETF T00022 (* 0.38268343 T00021))
+     (SETF T00023 (* 0.9238795 T00021))
+     (SETF T00021 (- T00008 T00020))
+     (SETF T00020 (* 0.9238795 T00021))
+     (SETF T00008 (* 0.38268343 T00021))
+     (SETF T00021 (- (.Y R001) (.Y R000)))
+     (SETF T00024 (- T00009 T00021))
+     (SETF T00025 (FMA -0.9238795 T00024 T00022))
+     (SETF T00022 (FMA 0.38268343 T00024 T00023))
+     (SETF T00023 (+ T00009 T00021))
+     (SETF T00021 (FMA -0.38268343 T00023 T00020))
+     (SETF T00020 (FMA 0.9238795 T00023 T00008))
+     (SETF T00008 (+ (.Y R001) (.Y R000)))
+     (SETF T00023 (- T00001 T00008))
+     (SETF T00009 (* 0.70710677 T00023))
+     (SETF T00023 (+ T00001 T00008))
+     (SETF T00008 (+ (.X R001) (.X R000)))
+     (SETF T00001 (- T00019 T00008))
+     (SETF T00024 (* 0.70710677 T00001))
+     (SETF T00001 (- T00009 T00024))
+     (SETF T00026 (+ T00024 T00009))
+     (SETF T00009 (+ T00019 T00008))
+     (SETF R000 (,IN 15))
+     (SETF R001 (,IN 7))
+     (SETF T00008 (- (.Y R000) (.Y R001)))
+     (SETF T00019 (- (.X R000) (.X R001)))
+     (SETF T00024 (+ (.Y R000) (.Y R001)))
+     (SETF T00027 (+ (.X R000) (.X R001)))
+     (SETF R001 (,IN 3))
+     (SETF R000 (,IN 11))
+     (SETF T00028 (- (.X R001) (.X R000)))
+     (SETF T00029 (+ T00008 T00028))
+     (SETF T00030 (* 0.38268343 T00029))
+     (SETF T00031 (- T00008 T00028))
+     (SETF T00028 (* 0.9238795 T00031))
+     (SETF T00008 (- (.Y R001) (.Y R000)))
+     (SETF T00032 (- T00019 T00008))
+     (SETF T00033 (FMA 0.9238795 T00032 T00030))
+     (SETF T00030 (- T00025 T00033))
+     (SETF T00034 (- T00016 T00030))
+     (SETF T00035 (+ T00016 T00030))
+     (SETF T00030 (+ T00025 T00033))
+     (SETF T00033 (- T00006 T00030))
+     (SETF T00025 (+ T00006 T00030))
+     (SETF T00030 (* 0.38268343 T00032))
+     (SETF T00032 (FMA -0.9238795 T00029 T00030))
+     (SETF T00030 (- T00022 T00032))
+     (SETF T00029 (+ T00014 T00030))
+     (,OUT 15 T00034 T00029)
+     (SETF T00029 (- T00014 T00030))
+     (,OUT 7 T00035 T00029)
+     (SETF T00029 (+ T00022 T00032))
+     (SETF T00032 (- T00017 T00029))
+     (,OUT 11 T00032 T00033)
+     (SETF T00033 (+ T00017 T00029))
+     (,OUT 3 T00033 T00025)
+     (SETF T00025 (+ T00019 T00008))
+     (SETF T00008 (FMA 0.38268343 T00025 T00028))
+     (SETF T00028 (- T00021 T00008))
+     (SETF T00019 (- T00015 T00028))
+     (SETF T00033 (+ T00015 T00028))
+     (SETF T00028 (+ T00021 T00008))
+     (SETF T00008 (- T00004 T00028))
+     (SETF T00021 (+ T00004 T00028))
+     (SETF T00028 (* 0.9238795 T00025))
+     (SETF T00025 (FMA -0.38268343 T00031 T00028))
+     (SETF T00028 (- T00020 T00025))
+     (SETF T00031 (+ T00012 T00028))
+     (,OUT 13 T00019 T00031)
+     (SETF T00031 (- T00012 T00028))
+     (,OUT 5 T00033 T00031)
+     (SETF T00031 (+ T00020 T00025))
+     (SETF T00025 (- T00011 T00031))
+     (,OUT 9 T00025 T00008)
+     (SETF T00008 (+ T00011 T00031))
+     (,OUT 1 T00008 T00021)
+     (SETF T00021 (+ (.Y R001) (.Y R000)))
+     (SETF T00008 (- T00024 T00021))
+     (SETF T00031 (* 0.70710677 T00008))
+     (SETF T00008 (+ T00024 T00021))
+     (SETF T00021 (- T00023 T00008))
+     (SETF T00024 (- T00007 T00021))
+     (SETF T00011 (+ T00007 T00021))
+     (SETF T00021 (+ T00023 T00008))
+     (SETF T00008 (- T00003 T00021))
+     (SETF T00023 (+ T00003 T00021))
+     (SETF T00021 (+ (.X R001) (.X R000)))
+     (SETF T00003 (- T00027 T00021))
+     (SETF T00007 (* 0.70710677 T00003))
+     (SETF T00003 (+ T00007 T00031))
+     (SETF T00025 (- T00001 T00003))
+     (SETF T00020 (- T00005 T00025))
+     (SETF T00033 (+ T00005 T00025))
+     (SETF T00025 (+ T00001 T00003))
+     (SETF T00003 (- T00018 T00025))
+     (SETF T00001 (+ T00018 T00025))
+     (SETF T00025 (- T00007 T00031))
+     (SETF T00031 (- T00026 T00025))
+     (SETF T00007 (+ T00002 T00031))
+     (,OUT 14 T00020 T00007)
+     (SETF T00007 (- T00002 T00031))
+     (,OUT 6 T00033 T00007)
+     (SETF T00007 (+ T00026 T00025))
+     (SETF T00025 (- T00000 T00007))
+     (,OUT 10 T00025 T00003)
+     (SETF T00003 (+ T00000 T00007))
+     (,OUT 2 T00003 T00001)
+     (SETF T00001 (+ T00027 T00021))
+     (SETF T00021 (- T00009 T00001))
+     (SETF T00027 (+ T00013 T00021))
+     (,OUT 12 T00024 T00027)
+     (SETF T00027 (- T00013 T00021))
+     (,OUT 4 T00011 T00027)
+     (SETF T00027 (+ T00009 T00001))
+     (SETF T00001 (- T00010 T00027))
+     (,OUT 8 T00001 T00008)
+     (SETF T00008 (+ T00010 T00027))
+     (,OUT 0 T00008 T00023)))
 
-
-(defun fft8il (x y lx ly stride)
+(defun fft16il (x y lx ly stride)
   (macrolet ((in (i)
                `(.xy (image-load tex (ivec2 x (+ y (* stride ,i))))))
              (out (i re im)
                `(progn
                   (setf (scratch lx ly stride ,i) ,re)
                   (setf (scratch lx ly stride ,i t) ,im))))
-    (fft8 in out)))
+    (fft16 in out)))
 
 
-(defun fft8li (x y lx ly stride)
+(defun fft16li (x y lx ly stride)
   (macrolet ((in (i)
                `(vec2 (scratch2 lx ly stride ,i)))
              (out (i re im)
                `(image-store out1 (ivec2 x (+ y (* stride ,i)))
                              (vec4 ,re ,im 0 0))))
-    (fft8 in out)))
+    (fft16 in out)))
 
 
 
-(defun fft8l (lx ly stride)
+(defun fft16l (lx ly stride)
   (macrolet ((in (i)
                `(vec2 (scratch2 lx ly stride ,i)))
              (out (i re im)
                `(progn
                   (setf (scratch lx ly stride ,i) ,re)
                   (setf (scratch lx ly stride ,i t) ,im))))
-    (fft8 in out)))
+    (fft16 in out)))
 
 
 
 
-(defun ifft8il (x y lx ly stride)
+(defun ifft16il (x y lx ly stride)
   ;; doesn't actually do IFFT, just swaps re/im as first step in using
   ;; normal FFT to calculate IFFT
   (macrolet ((in (i)
@@ -169,73 +306,73 @@
                `(progn
                   (setf (scratch lx ly stride ,i) ,re)
                   (setf (scratch lx ly stride ,i t) ,im))))
-    (fft8 in out)))
+    (fft16 in out)))
 
 
-(defun loadx (x y lx)
-  (let* ((stride 1)
-         (stride2 1)
-         (r0 (image-load tex (ivec2 (+ (* y 8) 0) (+ x 0))))
-         (r1 (image-load tex (ivec2 (+ (* y 8) 1) (+ x 0))))
-         (r2 (image-load tex (ivec2 (+ (* y 8) 2) (+ x 0))))
-         (r3 (image-load tex (ivec2 (+ (* y 8) 3) (+ x 0))))
-         (r4 (image-load tex (ivec2 (+ (* y 8) 4) (+ x 0))))
-         (r5 (image-load tex (ivec2 (+ (* y 8) 5) (+ x 0))))
-         (r6 (image-load tex (ivec2 (+ (* y 8) 6) (+ x 0))))
-         (r7 (image-load tex (ivec2 (+ (* y 8) 7) (+ x 0)))))
-    (progn
-      ;; re
-      (setf (scratch lx (* y 8) 1 0) (.x r0))
-      (setf (scratch lx (* y 8) 1 1) (.x r1))
-      (setf (scratch lx (* y 8) 1 2) (.x r2))
-      (setf (scratch lx (* y 8) 1 3) (.x r3))
-      (setf (scratch lx (* y 8) 1 4) (.x r4))
-      (setf (scratch lx (* y 8) 1 5) (.x r5))
-      (setf (scratch lx (* y 8) 1 6) (.x r6))
-      (setf (scratch lx (* y 8) 1 7) (.x r7)))
-    (progn
-      ;; im
-      (setf (scratch lx (* y 8) 1 0 t) (.y r0))
-      (setf (scratch lx (* y 8) 1 1 t) (.y r1))
-      (setf (scratch lx (* y 8) 1 2 t) (.y r2))
-      (setf (scratch lx (* y 8) 1 3 t) (.y r3))
-      (setf (scratch lx (* y 8) 1 4 t) (.y r4))
-      (setf (scratch lx (* y 8) 1 5 t) (.y r5))
-      (setf (scratch lx (* y 8) 1 6 t) (.y r6))
-      (setf (scratch lx (* y 8) 1 7 t) (.y r7)))))
+(defmacro with-image-vars ((x y base-var count) &body body)
+  `(let (,@(loop for i below count
+                 for s =  (alexandria:format-symbol t
+                                                    "~a~d" base-var i)
+                 collect (list s `(image-load tex (ivec2 (+ ,y ,i)
+                                                         ,x)))))
+     ,@body))
 
-(defun loadxt (x y lx)
+(defmacro with-local-vars ((x y base-var count &key stride) &body body)
+  `(let (,@(loop for i below count
+                 for s = (alexandria:format-symbol t
+                                                   "~a~d" base-var i)
+                 collect (list s `(scratch2 ,x ,y ,stride ,i))))
+     ,@body))
+
+(defmacro with-twiddle-vars ((y ty base-var count) &body body)
+  `(let (,@(loop for i below count
+                 for s = (alexandria:format-symbol t
+                                                   "~a~d" base-var i)
+                 collect (list s `(image-load twiddle (ivec2 (+ ,y ,i) ,ty)))))
+     ,@body))
+
+(defmacro write-local (y lx base-var count &key base-var2
+                                             (r-form `(.x ,base-var))
+                                             (i-form `(.y ,base-var))
+                                             (stride 1))
+  `(progn
+     ;; re
+     ,@(loop for i below count
+             for s = (alexandria:format-symbol t
+                                               "~a~d" base-var i)
+             for s2 = (when base-var2
+                        (alexandria:format-symbol t
+                                                  "~a~d" base-var2 i))
+             for f = (if s2
+                         (subst s base-var (subst s2 base-var2 r-form))
+                         (subst s base-var r-form))
+
+             collect
+             `(setf (scratch ,lx ,y ,stride ,i) ,f))
+     ;; im
+     ,@(loop for i below count
+             for s = (alexandria:format-symbol t
+                                               "~a~d" base-var i)
+             for s2 = (when base-var2
+                        (alexandria:format-symbol t
+                                                  "~a~d" base-var2 i))
+             for f = (if s2
+                         (subst s base-var (subst s2 base-var2 i-form))
+                         (subst s base-var i-form))
+             collect
+             `(setf (scratch ,lx ,y ,stride ,i t) ,f))))
+
+(defun loadx (x y1 lx)
+  (let ((y (* y1 16)))
+    (with-image-vars (x y r 16)
+     (write-local y lx r 16))))
+
+
+(defun loadxt (x y1 lx)
   ;; swap real/imag components for use in calculating IFFT
-  (let* ((stride 1)
-         (stride2 1)
-         (r0 (image-load tex (ivec2 (+ (* y 8) 0) (+ x 0))))
-         (r1 (image-load tex (ivec2 (+ (* y 8) 1) (+ x 0))))
-         (r2 (image-load tex (ivec2 (+ (* y 8) 2) (+ x 0))))
-         (r3 (image-load tex (ivec2 (+ (* y 8) 3) (+ x 0))))
-         (r4 (image-load tex (ivec2 (+ (* y 8) 4) (+ x 0))))
-         (r5 (image-load tex (ivec2 (+ (* y 8) 5) (+ x 0))))
-         (r6 (image-load tex (ivec2 (+ (* y 8) 6) (+ x 0))))
-         (r7 (image-load tex (ivec2 (+ (* y 8) 7) (+ x 0)))))
-    (progn
-      ;; im->re
-      (setf (scratch lx (* y 8) 1 0) (.y r0))
-      (setf (scratch lx (* y 8) 1 1) (.y r1))
-      (setf (scratch lx (* y 8) 1 2) (.y r2))
-      (setf (scratch lx (* y 8) 1 3) (.y r3))
-      (setf (scratch lx (* y 8) 1 4) (.y r4))
-      (setf (scratch lx (* y 8) 1 5) (.y r5))
-      (setf (scratch lx (* y 8) 1 6) (.y r6))
-      (setf (scratch lx (* y 8) 1 7) (.y r7)))
-    (progn
-      ;; re->im
-      (setf (scratch lx (* y 8) 1 0 t) (.x r0))
-      (setf (scratch lx (* y 8) 1 1 t) (.x r1))
-      (setf (scratch lx (* y 8) 1 2 t) (.x r2))
-      (setf (scratch lx (* y 8) 1 3 t) (.x r3))
-      (setf (scratch lx (* y 8) 1 4 t) (.x r4))
-      (setf (scratch lx (* y 8) 1 5 t) (.x r5))
-      (setf (scratch lx (* y 8) 1 6 t) (.x r6))
-      (setf (scratch lx (* y 8) 1 7 t) (.x r7)))))
+  (let ((y (* y1 16)))
+    (with-image-vars (x y r 16)
+      (write-local y lx r 16 :r-form (.y r) :i-form (.x r)))))
 
 (defmacro c*r (a b)
   `(- (* (.x ,a) (.x ,b))
@@ -246,169 +383,84 @@
       (* (.x ,a) (.y ,b))))
 
 (defun twiddle-pass (x y1 ty)
-  (let* ((y (* y1 8))
-         (stride 1)
-         (t0 (image-load twiddle (ivec2 (+ y 0) ty)))
-         (t1 (image-load twiddle (ivec2 (+ y 1) ty)))
-         (t2 (image-load twiddle (ivec2 (+ y 2) ty)))
-         (t3 (image-load twiddle (ivec2 (+ y 3) ty)))
-         (t4 (image-load twiddle (ivec2 (+ y 4) ty)))
-         (t5 (image-load twiddle (ivec2 (+ y 5) ty)))
-         (t6 (image-load twiddle (ivec2 (+ y 6) ty)))
-         (t7 (image-load twiddle (ivec2 (+ y 7) ty)))
-         (r0 (vec2 (scratch x y stride 0) (scratch x y stride 0 t)))
-         (r1 (vec2 (scratch x y stride 1) (scratch x y stride 1 t)))
-         (r2 (vec2 (scratch x y stride 2) (scratch x y stride 2 t)))
-         (r3 (vec2 (scratch x y stride 3) (scratch x y stride 3 t)))
-         (r4 (vec2 (scratch x y stride 4) (scratch x y stride 4 t)))
-         (r5 (vec2 (scratch x y stride 5) (scratch x y stride 5 t)))
-         (r6 (vec2 (scratch x y stride 6) (scratch x y stride 6 t)))
-         (r7 (vec2 (scratch x y stride 7) (scratch x y stride 7 t))))
-
-    (setf (scratch x y stride 0) (c*r r0 t0))
-    (setf (scratch x y stride 1) (c*r r1 t1))
-    (setf (scratch x y stride 2) (c*r r2 t2))
-    (setf (scratch x y stride 3) (c*r r3 t3))
-    (setf (scratch x y stride 4) (c*r r4 t4))
-    (setf (scratch x y stride 5) (c*r r5 t5))
-    (setf (scratch x y stride 6) (c*r r6 t6))
-    (setf (scratch x y stride 7) (c*r r7 t7))
-
-    (setf (scratch x y stride 0 t) (c*i r0 t0))
-    (setf (scratch x y stride 1 t) (c*i r1 t1))
-    (setf (scratch x y stride 2 t) (c*i r2 t2))
-    (setf (scratch x y stride 3 t) (c*i r3 t3))
-    (setf (scratch x y stride 4 t) (c*i r4 t4))
-    (setf (scratch x y stride 5 t) (c*i r5 t5))
-    (setf (scratch x y stride 6 t) (c*i r6 t6))
-    (setf (scratch x y stride 7 t) (c*i r7 t7))))
-
+  (let* ((y (* y1 16)))
+    (with-twiddle-vars (y ty t 16)
+      (with-local-vars (x y r 16 :stride 1)
+        (write-local y x r 16 :base-var2 t
+                     :r-form (c*r r t)
+                     :i-form (c*i r t))))))
 
 (defun transposell (lx sy dy sstride dstride)
-  (let* ((r0 (scratch2 lx sy sstride 0))
-         (r1 (scratch2 lx sy sstride 1))
-         (r2 (scratch2 lx sy sstride 2))
-         (r3 (scratch2 lx sy sstride 3))
-         (r4 (scratch2 lx sy sstride 4))
-         (r5 (scratch2 lx sy sstride 5))
-         (r6 (scratch2 lx sy sstride 6))
-         (r7 (scratch2 lx sy sstride 7)))
+  (with-local-vars (lx sy r 16 :stride sstride)
     (barrier)
-    ;; re
-    (setf (scratch lx dy dstride 0) (.x r0))
-    (setf (scratch lx dy dstride 1) (.x r1))
-    (setf (scratch lx dy dstride 2) (.x r2))
-    (setf (scratch lx dy dstride 3) (.x r3))
-    (setf (scratch lx dy dstride 4) (.x r4))
-    (setf (scratch lx dy dstride 5) (.x r5))
-    (setf (scratch lx dy dstride 6) (.x r6))
-    (setf (scratch lx dy dstride 7) (.x r7))
-    ;; im
-    (setf (scratch lx dy dstride 0 t) (.y r0))
-    (setf (scratch lx dy dstride 1 t) (.y r1))
-    (setf (scratch lx dy dstride 2 t) (.y r2))
-    (setf (scratch lx dy dstride 3 t) (.y r3))
-    (setf (scratch lx dy dstride 4 t) (.y r4))
-    (setf (scratch lx dy dstride 5 t) (.y r5))
-    (setf (scratch lx dy dstride 6 t) (.y r6))
-    (setf (scratch lx dy dstride 7 t) (.y r7))))
+    (write-local dy lx r 16 :stride dstride)))
+
 
 (defun fft-x ()
-  (declare (layout (:in nil :local-size-x 8 :local-size-y 64)))
+  (declare (layout (:in nil :local-size-x 16 :local-size-y 16)))
   (let ((x (.x gl-global-invocation-id))
         (y (.y gl-global-invocation-id))
         (lx (.x gl-local-invocation-id))
         (ly (.y gl-local-invocation-id)))
     (loadx x y lx)
     (barrier)
-    ;; 512 pt
-    ;; = 8pt fft
+    ;; 256 pt
+    ;; = 16pt fft
     (barrier)
-    (fft8l lx ly 64)
+    (fft16l lx ly 16)
     (barrier)
-    ;;   + twiddle 8x64
+    ;;   + twiddle 16x16
     (twiddle-pass lx y 0)
     (barrier)
-    ;;   + transpose 8x8
-    (transposell lx y (* 8 y) 64 1)
+    ;;   + transpose 16x16
+    (transposell lx y (* 16 y) 16 1)
     (barrier)
-    ;; + 64 pt fft
-    ;;   = 8 pt fft
-    (fft8l lx ly 64)
-    (barrier)
-    ;; + twidddle 8x8 / 8 stride
-    (twiddle-pass lx y 1)
-    ;; + transpose 8x64
-    (barrier)
-    (transposell lx y
-                 (3bgl-shaders::uint (* 8 (+ (* 8 (mod y 8))
-                                             (floor (/ y 8)))))
-                 64 1)
-    ;;   + 8pt fft
-    (barrier)
-    (fft8l lx (3bgl-shaders::uint (+ (mod y 8)
-                                     (* 64 (floor (/ y 8)))))
-           8)
+    ;; + 16 pt fft
+    (fft16l lx ly 16)
     (barrier)
     ;; copy to dest image
-    (dotimes (i 8)
-      (let* ((y512 (+ (* y 8) i))
-             (xy (ivec2 y512 x))
-             (yy (3bgl-shaders::uint    ;y512
-                  (+ (* 64 (mod y512 8))
-                     (floor (/ y512 8))))))
+    (dotimes (i 16)
+      (let* ((y256 (+ (* y 16) i))
+             (xy (ivec2 y256 x))
+             (yy (3bgl-shaders::uint y256)))
         ;; fixme: write out in X order instead of y
         (image-store out1 xy
-                     (* 1 (vec4 (scratch lx yy 0 0)
-                                (scratch lx yy 0 0 t)
-                                0 0)))))))
+                     (* 1;#. (/ (sqrt 256.0))
+                        (vec4 (scratch lx yy 0 0)
+                              (scratch lx yy 0 0 t)
+                              0 0)))))))
+
 
 (defun fft-y ()
-  (declare (layout (:in nil :local-size-x 8 :local-size-y 64)))
+  (declare (layout (:in nil :local-size-x 16 :local-size-y 16)))
   (let ((x (.x gl-global-invocation-id))
         (y (.y gl-global-invocation-id))
         (lx (.x gl-local-invocation-id))
         (ly (.y gl-local-invocation-id)))
     tex ;; fixme: compiler is missing dependencies somewhere
-    ;; 512 pt
-    ;; = 8pt fft
-    (fft8il x y lx ly 64)
+    ;; 256 pt
+    ;; = 16pt fft
+    (fft16il x y lx ly 16)
     (barrier)
-    ;;   + twiddle 8x64
+    ;;   + twiddle 16x16
     (twiddle-pass lx y 0)
     (barrier)
-    ;;   + transpose 8x8
-    (transposell lx y (* 8 y) 64 1)
+    ;;   + transpose 16x16
+    (transposell lx y (* 16 y) 16 1)
     (barrier)
-    ;; + 64 pt fft
-    ;;   = 8 pt fft
-    (fft8l lx ly 64)
-    (barrier)
-    ;; + twidddle 8x8 / 8 stride
-    (twiddle-pass lx y 1)
-    ;; + transpose 8x64
-    (barrier)
-    (transposell lx y
-                 (3bgl-shaders::uint (* 8 (+ (* 8 (mod y 8))
-                                             (floor (/ y 8)))))
-                 64 1)
-    ;;   + 8pt fft
-    (barrier)
-    (fft8l lx (3bgl-shaders::uint (+ (mod y 8)
-                                     (* 64 (floor (/ y 8)))))
-           8)
+    ;; + 16 pt fft
+    (fft16l lx ly 16)
     (barrier)
     ;; copy to dest image
-    (dotimes (i 8)
-      (let* ((y512 (+ (* y 8) i))
-             (xy (ivec2 x y512))
-             (yy (3bgl-shaders::uint    ;y512
-                  (+ (* 64 (mod y512 8))
-                     (floor (/ y512 8))))))
+    (dotimes (i 16)
+      (let* ((y256 (+ (* y 16) i))
+             (xy (ivec2 x y256))
+             (yy (3bgl-shaders::uint y256)))
         (image-store out1 xy
-                     (* 1 (vec4 (scratch lx yy 0 0)
-                                (scratch lx yy 0 0 t)
-                                0 0)))))))
+                     (* 1;#. (/ (sqrt 512.0))
+                        (vec4 (scratch lx yy 0 0)
+                              (scratch lx yy 0 0 t)
+                              0 0)))))))
 
 
 (defun convolve ()
@@ -423,10 +475,8 @@
                        (c*i a k)
                        0 0))))
 
-
-
 (defun ifft-x ()
-  (declare (layout (:in nil :local-size-x 8 :local-size-y 64)))
+  (declare (layout (:in nil :local-size-x 16 :local-size-y 16)))
   ;; calculate IFFT by swapping RE/IM on input and output, and
   ;; dividing result by N
   (let ((x (.x gl-global-invocation-id))
@@ -435,99 +485,58 @@
         (ly (.y gl-local-invocation-id)))
     (loadxt x y lx)
     (barrier)
-    ;; 512 pt
-    ;; = 8pt fft
+    ;; 256 pt
+    ;; = 16pt fft
     (barrier)
-    (fft8l lx ly 64)
+    (fft16l lx ly 16)
     (barrier)
-    ;;   + twiddle 8x64
+    ;;   + twiddle 16x16
     (twiddle-pass lx y 0)
     (barrier)
-    ;;   + transpose 8x8
-    (transposell lx y (* 8 y) 64 1)
+    ;;   + transpose 16x16
+    (transposell lx y (* 16 y) 16 1)
     (barrier)
-    ;; + 64 pt fft
-    ;;   = 8 pt fft
-    (fft8l lx ly 64)
-    (barrier)
-    ;; + twidddle 8x8 / 8 stride
-    (twiddle-pass lx y 1)
-    ;; + transpose 8x64
-    (barrier)
-    (transposell lx y
-                 (3bgl-shaders::uint (* 8 (+ (* 8 (mod y 8))
-                                             (floor (/ y 8)))))
-                 64 1)
-    ;;   + 8pt fft
-    (barrier)
-    (fft8l lx (3bgl-shaders::uint (+ (mod y 8)
-                                     (* 64 (floor (/ y 8)))))
-           8)
+    ;; + 16 pt fft
+    (fft16l lx ly 16)
     (barrier)
     ;; copy to dest image
-    (dotimes (i 8)
-      (let* ((y512 (+ (* y 8) i))
-             (xy (ivec2 y512 x))
-             (yy (3bgl-shaders::uint    ;y512
-                  (+ (* 64 (mod y512 8))
-                     (floor (/ y512 8))))))
-        ;; fixme: write out in X order instead of y
+    (dotimes (i 16)
+      (let* ((y256 (+ (* y 16) i))
+             (xy (ivec2 y256 x))
+             (yy (3bgl-shaders::uint y256)))
         (image-store out1 xy
-                     ;; todo: probably should just divide by 512^2 in ifft-y
-                     ;; and skip swap on output of -x and input of -y?
-                     (* #.(/ 1.0 512)
+                     (* #. (/ 1.0 256.0)
                         (vec4 (scratch lx yy 0 0 t)
                               (scratch lx yy 0 0)
                               0 0)))))))
 
-
-
 (defun ifft-y ()
-  (declare (layout (:in nil :local-size-x 8 :local-size-y 64)))
-  ;; calculate IFFT by swapping RE/IM on input and output, and
-  ;; dividing result by N
+  (declare (layout (:in nil :local-size-x 16 :local-size-y 16)))
   (let ((x (.x gl-global-invocation-id))
         (y (.y gl-global-invocation-id))
         (lx (.x gl-local-invocation-id))
         (ly (.y gl-local-invocation-id)))
     tex ;; fixme: compiler is missing dependencies somewhere
-    ;; 512 pt
-    ;; = 8pt fft
-    (ifft8il x y lx ly 64)
+    ;; 256 pt
+    ;; = 16pt fft
+    (ifft16il x y lx ly 16)
     (barrier)
-    ;;   + twiddle 8x64
+    ;;   + twiddle 16x16
     (twiddle-pass lx y 0)
     (barrier)
-    ;;   + transpose 8x8
-    (transposell lx y (* 8 y) 64 1)
+    ;;   + transpose 16x16
+    (transposell lx y (* 16 y) 16 1)
     (barrier)
-    ;; + 64 pt fft
-    ;;   = 8 pt fft
-    (fft8l lx ly 64)
-    (barrier)
-    ;; + twidddle 8x8 / 8 stride
-    (twiddle-pass lx y 1)
-    ;; + transpose 8x64
-    (barrier)
-    (transposell lx y
-                 (3bgl-shaders::uint (* 8 (+ (* 8 (mod y 8))
-                                             (floor (/ y 8)))))
-                 64 1)
-    ;;   + 8pt fft
-    (barrier)
-    (fft8l lx (3bgl-shaders::uint (+ (mod y 8)
-                                     (* 64 (floor (/ y 8)))))
-           8)
+    ;; + 16 pt fft
+    (fft16l lx ly 16)
     (barrier)
     ;; copy to dest image
-    (dotimes (i 8)
-      (let* ((y512 (+ (* y 8) i))
-             (xy (ivec2 x y512))
-             (yy (3bgl-shaders::uint    ;y512
-                  (+ (* 64 (mod y512 8))
-                     (floor (/ y512 8))))))
+    (dotimes (i 16)
+      (let* ((y256 (+ (* y 16) i))
+             (xy (ivec2 x y256))
+             (yy (3bgl-shaders::uint y256)))
         (image-store out1 xy
-                     (* #.(/ 1.0 512)
+                     (* #. (/ 1.0 256.0)
                         (vec4 (scratch lx yy 0 0 t)
                               (scratch lx yy 0 0)
                               0 0)))))))
