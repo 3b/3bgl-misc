@@ -5,22 +5,36 @@
 
 
 (uniform flag :int :location 0)
-(uniform tex :image-3d :location 1 :layout (:rg16f t))
+(uniform tex :image-3d :location 1 :layout (:rg32f t)
+         :qualifiers (:restrict))
 (uniform out1 :image-3d :location 2
-                        :layout (:rg16f t))
+                        :layout (:rg32f t)
+                        :qualifiers (:restrict))
 (uniform kernel :image-3d :location 3
-                          :layout (:rg16f t))
+                          :layout (:rg32f t)
+                          :qualifiers (:restrict))
 
 ;; twiddle factors for FFT, x = element in FFT, y = pass
 ;; probably should move to local/constant once everything works?
-(uniform twiddle :image-2d :location 3 :layout (:rg16f t))
+(uniform twiddle :image-2d :location 3 :layout (:rg32f t))
 
-(uniform rule-in1 :image-3d :location 0 :layout (:rg16f t))
-(uniform rule-in2 :image-3d :location 1 :layout (:rg16f t))
+(uniform rule-in1 :image-3d :location 0 :layout (:rg32f t))
+(uniform rule-in2 :image-3d :location 1 :layout (:rg32f t))
 
 (uniform counter :atomic-uint :layout (:binding 0 :offset 0))
 
 (shared scratch (:float 8192))
+
+(defconstant +ctwiddle+
+  #.(cons 'vector
+      (loop for i below 256
+            for j = (floor i 16)
+            for k = (mod i 16)
+            for x = (* i 2)
+            for t1 = (exp (complex 0 (* -2/256 pi j k)))
+            collect (float (realpart t1) 1.0)
+            collect (float (imagpart t1) 1.0)))
+  (:float 512))
 
 (defmacro scratch (x y stride offset &optional im)
   `(aref scratch (+ ,@(when im `(4096))
@@ -305,6 +319,69 @@
     (fft16 in out)))
 
 
+(defun fft16lx (lx ly stride)
+  ;; other routines work along the long axis of a 16x256 block
+  ;; to work across short axis, we first read into a local array
+  ;; with offsets to avoid bank conflicts, then work on that and write it
+  ;; out again with offsets
+  ;; -- seems like reading
+  (macrolet ((in (i)
+               `(vec2 (scratch2 ly lx stride (mod (+ ly ,i) 16))))
+             (out (i re im)
+               `(progn
+                  (setf (scratch ly lx stride (mod (+ ly ,i) 16)) ,re)
+                  (setf (scratch ly lx stride (mod (+ ly ,i) 16) t) ,im))))
+    (fft16 in out))
+  #++(let ((temp1 #++(vector 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+                   0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0)))
+    ;; fixme: support CL declaration (type (vector 16 :float) temp1) ?
+    (declare ((:vec2 16) temp1))
+    (macrolet ((load ()
+                 #++`(progn
+                    ,@(loop for i below 16
+                            collect `(setf (aref temp1 (mod (+ ly ,i) 16))
+                                           (vec2 (scratch (mod (+ ly ,i) 16)
+                                                          lx stride 0)
+                                                 (scratch (mod (+ ly ,i) 16)
+                                                          lx stride 0 t))))
+                    )
+                 `(progn
+                    ,@(loop for i below 16
+                            collect `(setf (aref temp1 ly)
+                                           (vec2 (scratch ly
+                                                          lx stride 0)
+                                                 (scratch ly
+                                                          lx stride 0 t))))
+                    ))
+               (store ()
+                 #++`(progn
+                    ,@(loop for i below 16
+                            collect `(setf (scratch (mod (+ ly ,i) 16)
+                                                          lx stride 0)
+                                           (.x (aref temp1 (mod (+ ly ,i) 16))))
+                            collect `(setf (scratch (mod (+ ly ,i) 16)
+                                                    lx stride 0 t)
+                                           (.y (aref temp1 (mod (+ ly ,i) 16))))))
+                 `(progn
+                    ,@(loop for i below 16
+                            collect `(setf (scratch ly
+                                                          lx stride 0)
+                                           (.x (aref temp1 ly)))
+                            collect `(setf (scratch ly
+                                                    lx stride 0 t)
+                                           (.y (aref temp1 ly)))))))
+      (progn
+        (load)
+        (macrolet ((in (i)
+                     `(aref temp1 ,i))
+                   (out (i re im)
+                     `(progn
+                        (setf (aref temp1 ,i)
+                              (vec2 ,re ,im)))))
+          (fft16 in out))
+        (store)))))
+
+
 
 
 (defun ifft16il (x y z lx ly stride)
@@ -349,7 +426,28 @@
   `(let (,@(loop for i below count
                  for s = (alexandria:format-symbol t
                                                    "~a~d" base-var i)
-                 collect (list s `(image-load twiddle (ivec2 (+ ,y ,i) ,ty)))))
+                 collect (list s `(image-load twiddle (ivec2 (+ ,y ,i) ,ty)))
+                         #++(list s `(ivec2 (aref +ctwiddle+ (* (+ ,i ,y) 2))
+                                            (aref +ctwiddle+ (+ 1 (* (+ ,i ,y) 2)))))))
+     ,@body))
+
+(defmacro with-ctwiddle-vars ((y ty base-var count) &body body)
+  `(let (,@(loop for i below count
+                 for s = (alexandria:format-symbol t
+                                                   "~a~d" base-var i)
+                 collect #++(list s `(image-load twiddle (ivec2 (+ ,y ,i) ,ty)))
+                         (list s `(ivec2 (aref +ctwiddle+ (* (+ ,i ,y) 2))
+                                         (aref +ctwiddle+ (+ 1 (* (+ ,i ,y) 2)))))))
+     ,@body))
+
+(defmacro with-cxtwiddle-vars ((y1 ty base-var count) &body body)
+  `(let (,@(loop for i below count
+                 for s = (alexandria:format-symbol t "~a~d" base-var i)
+                 collect (list s
+                               `(vec2 (cos (* ,(float (* pi -2/256 i) 1.0)
+                                               (float ,y1)))
+                                      (sin (* ,(float (* pi -2/256 i) 1.0)
+                                               (float ,y1)))))))
      ,@body))
 
 (defmacro write-local (y lx base-var count &key base-var2
@@ -405,7 +503,17 @@
 
 (defun twiddle-pass (x y1 ty)
   (let* ((y (* y1 16)))
-    (with-twiddle-vars (y ty t 16)
+    (;;with-twiddle-vars (y ty t 16)
+     with-cxtwiddle-vars (y1 ty t 16)
+      (with-local-vars (x y r 16 :stride 1)
+        (write-local y x r 16 :base-var2 t
+                     :r-form (c*r r t)
+                     :i-form (c*i r t))))))
+
+(defun ctwiddle-pass (x y1 ty)
+  (let* ((y (* y1 16)))
+    (;;with-ctwiddle-vars (y ty t 16)
+     with-cxtwiddle-vars (y1 ty t 16)
       (with-local-vars (x y r 16 :stride 1)
         (write-local y x r 16 :base-var2 t
                      :r-form (c*r r t)
@@ -427,7 +535,6 @@
     (barrier)
     ;; 256 pt
     ;; = 16pt fft
-    (barrier)
     (fft16l lx ly 16)
     (barrier)
     ;;   + twiddle 16x16
@@ -441,7 +548,7 @@
     (barrier)
     ;; copy to dest image
     (dotimes (i 16)
-      (let* ((y256 (+ (* y 16) i))
+      (let* ((y256 (+ (* i 16) y))
              (xy (ivec3 y256 x z))
              (yy (3bgl-shaders::uint y256)))
         ;; fixme: write out in X order instead of y
@@ -474,9 +581,13 @@
     ;; + 16 pt fft
     (fft16l lx ly 16)
     (barrier)
+;    (fft16lx lx ly 16)
+    (barrier)
+;    (twiddle-pass lx y 0)
+    (barrier)
     ;; copy to dest image
     (dotimes (i 16)
-      (let* ((y256 (+ (* y 16) i))
+      (let* ((y256 (+ (* i 16) y))
              (xy (ivec3 x y256 z))
              (yy (3bgl-shaders::uint y256)))
         (image-store out1 xy
@@ -509,7 +620,7 @@
     (barrier)
     ;; copy to dest image
     (dotimes (i 16)
-      (let* ((z256 (+ (* z 16) i))
+      (let* ((z256 (+ (* i 16) z))
              (xy (ivec3 x y z256))
              (zz (3bgl-shaders::uint z256)))
         (image-store out1 xy
@@ -518,14 +629,10 @@
                               (scratch lx zz 0 0 t)
                               0 0)))))))
 
-
 (defun convolve ()
   (declare (layout (:in nil :local-size-x 8 :local-size-y 8
                     :local-size-z 8)))
-  (let* ((x (.x gl-global-invocation-id))
-         (y (.y gl-global-invocation-id))
-         (z (.z gl-global-invocation-id))
-         (xy (ivec3 x y z))
+  (let* ((xy (ivec3 (.xyz gl-global-invocation-id)))
          (a (image-load tex xy))
          (k (image-load kernel xy)))
     (image-store out1 xy
@@ -561,7 +668,7 @@
     (barrier)
     ;; copy to dest image
     (dotimes (i 16)
-      (let* ((y256 (+ (* y 16) i))
+      (let* ((y256 (+ (* i 16) y))
              (xy (ivec3 y256 x z))
              (yy (3bgl-shaders::uint y256)))
         (image-store out1 xy
@@ -594,7 +701,7 @@
     (barrier)
     ;; copy to dest image
     (dotimes (i 16)
-      (let* ((y256 (+ (* y 16) i))
+      (let* ((y256 (+ (* i 16) y))
              (xy (ivec3 x y256 z))
              (yy (3bgl-shaders::uint y256)))
         (image-store out1 xy
@@ -627,7 +734,7 @@
     (barrier)
     ;; copy to dest image
     (dotimes (i 16)
-      (let* ((z256 (+ (* z 16) i))
+      (let* ((z256 (+ (* i 16) z))
              (xy (ivec3 x y z256))
              (zz (3bgl-shaders::uint z256)))
         (image-store out1 xy
@@ -635,16 +742,159 @@
                         (vec4 (scratch lx zz 0 0 t)
                               (scratch lx zz 0 0)
                               0 0)))))))
+
+;;; filter kernels
+;; builds unscaled kernel in 'kernel', partically reduced total volume in out1
+(uniform area :float :location 5)
+(uniform ra :float :location 6)
+(uniform ri :float :location 7)
+(uniform aa :float :location 8)
+
+(defun make-kernel ()
+  (declare (layout (:in nil :local-size-x 8 :local-size-y 8 :local-size-z 8)))
+  (let* ((pos (ivec3 (.xyz gl-global-invocation-id)))
+         (loc (ivec3 (.xyz gl-local-invocation-id)))
+         (xyz (- (mod (+ (vec3 128)
+                         (vec3 (.xyz gl-global-invocation-id)))
+                      (vec3 256))
+                 (vec3 128)))
+         (r (length xyz))
+         (v1 0.0))
+    (cond
+      ((and (> ri 0)
+            (< r (- ri (/ aa 2))))
+       (setf v1 0.0))
+      ((and (> ri 0)
+            (< r (+ ri (/ aa 2))))
+       (setf v1 #++(/ (/ (- r (- ri (/ aa 2))) aa)
+                   area)
+                (/ (- r (- ri (/ aa 2))) aa)))
+      ((< r (- ra (/ aa 2)))
+       (setf v1 1.0 #++(/ 1 area)))
+      ((> r (+ ra (/ aa 2)))
+       (setf v1 0.0))
+      (t
+       (setf v1 (/ (- (+ ra (/ aa 2)) r) aa)
+             #++(/ (/ (- (+ ra (/ aa 2)) r) aa)
+                   area))))
+    (image-store kernel pos (vec4 v1 0 0 0))
+    ;; sum values in shared memory
+    (macrolet ((s (xyz)
+                 `(aref scratch (+ (.x ,xyz)
+                                   (* 8 (+ (.y ,xyz)
+                                           (* 8 (.z ,xyz)))))))
+               (sum-box (loc n)
+                 `(+ (s (+ ,loc (ivec3 0 0 0)))
+                     (s (+ ,loc (ivec3 0 0 ,n)))
+                     (s (+ ,loc (ivec3 0 ,n 0)))
+                     (s (+ ,loc (ivec3 0 ,n ,n)))
+                     (s (+ ,loc (ivec3 ,n 0 0)))
+                     (s (+ ,loc (ivec3 ,n 0 ,n)))
+                     (s (+ ,loc (ivec3 ,n ,n 0)))
+                     (s (+ ,loc (ivec3 ,n ,n ,n))))))
+      ;; fixme: shouldn't need progn here, something wrong with macrolet
+      (progn
+        ;; store value in shared mem so we can calculate total
+        (setf (s loc) v1)
+        (barrier)
+        ;; partial reduction
+        (when (all (equal (logand loc (ivec3 1)) (ivec3 0)))
+          (setf (s loc) (sum-box loc 1)))
+        (barrier)
+        (when (all (equal (logand loc (ivec3 3)) (ivec3 0)))
+          (setf (s loc) (sum-box loc 2)))
+        (barrier)
+        ;;store result in out1
+        (when (all (equal (logand loc (ivec3 7)) (ivec3 0)))
+          (image-store out1 (ivec3 (.xyz gl-work-group-id))
+                       (vec4 (sum-box loc 4) 0 0 0)))))))
+
+(uniform scale :float :location 5)
+
+(defun scale-kernel ()
+  (declare (layout (:in nil :local-size-x 8 :local-size-y 8 :local-size-z 8)))
+  ;; finish reduction (duplicates work between workgroups, but easier
+  ;; than running separate pass...)
+  (let ((s 0.0)
+        (loc (ivec3 (.xyz gl-local-invocation-id))))
+    tex kernel;; fixme: missing dependencies again?
+    (dotimes (i 4)
+      (dotimes (j 4)
+        (dotimes (k 4)
+          (incf s (.x (image-load tex (+ (* 8 (ivec3 i j k))
+                                         loc)))))))
+    (macrolet ((s (xyz)
+                 `(aref scratch (+ (.x ,xyz)
+                                   (* 8 (+ (.y ,xyz)
+                                           (* 8 (.z ,xyz)))))))
+               (sum-box (loc n)
+                 `(+ (s (+ ,loc (ivec3 0 0 0)))
+                     (s (+ ,loc (ivec3 0 0 ,n)))
+                     (s (+ ,loc (ivec3 0 ,n 0)))
+                     (s (+ ,loc (ivec3 0 ,n ,n)))
+                     (s (+ ,loc (ivec3 ,n 0 0)))
+                     (s (+ ,loc (ivec3 ,n 0 ,n)))
+                     (s (+ ,loc (ivec3 ,n ,n 0)))
+                     (s (+ ,loc (ivec3 ,n ,n ,n))))))
+      ;; fixme: shouldn't need progn here, something wrong with macrolet
+      (progn
+        ;; store value in shared mem so we can calculate total
+        (setf (s loc) s)
+        (barrier)
+        ;; reduce
+        (when (all (equal (logand loc (ivec3 1)) (ivec3 0)))
+          (setf (s loc) (sum-box loc 1)))
+        (barrier)
+        (when (all (equal (logand loc (ivec3 3)) (ivec3 0)))
+          (setf (s loc) (sum-box loc 2)))
+        (barrier)
+        ;;store result
+        (when (all (equal (logand loc (ivec3 7)) (ivec3 0)))
+          (setf (aref scratch 0) (sum-box loc 4)))
+        (barrier)
+        (setf s (aref scratch 0))
+        ))
+
+    (image-store out1 (ivec3 (.xyz gl-global-invocation-id))
+                 #++(vec4 (- s 2860)
+                       (.x (image-load tex (ivec3 (.xyz gl-work-group-id))))
+                       0 0)
+                 #++(vec4 (.y (image-load kernel (ivec3 (.xyz gl-global-invocation-id))))
+                          0 0 0)
+                 (vec4 (* (/ (.x (image-load kernel (ivec3 (.xyz gl-global-invocation-id))))
+                             s)
+                          scale)
+                       0 0 0))))
+
+;;; initialization
+;; input = 16^3 (or whatever) random texture in tex1
+;; out = 256^3 texture in out1, with input stretched/tiled
+(uniform random-tex :sampler-3d :location 1)
+(defun init-world ()
+  (declare (layout (:in nil :local-size-x 8 :local-size-y 8 :local-size-z 8)))
+  (let* ((pos (ivec3 (.xyz gl-global-invocation-id)))
+         (ipos (/ (vec3 pos)
+                  (vec3 (.xyz (image-size out1)))
+                  ))
+         (r (texture random-tex (/ ipos
+                                   scale)
+                     ;; fixme: this should be optional
+                     0.0)))
+    (image-store out1 pos r)))
+
+
 ;;; smoothlife
 
 
 ;; sigmoid curves
 (defun ss1m (x a)
-  (return (/ 1.0 (+ 1.0 (exp (* #.(/ -4.0 0.147) ;; alpha m = 0.147
+  (return (/ 1.0 (+ 1.0 (exp (* #.(/ -4.0 0.140 ;0.147
+                                     ) ;; alpha m = 0.147
                                 (- x a)))))))
 
 (defun ss1n (x a)
-  (return (/ 1.0 (+ 1.0 (exp (* #.(/ -4.0 0.028) ;; alpha n = 0.028
+  (return (/ 1.0 (+ 1.0 (exp (* #.(/ -4.0 0.028 ;0.028
+                                     ) ;; alpha n = 0.028
                                 (- x a)))))))
 
 (defun ss2 (x a b)
@@ -665,8 +915,16 @@
          (b (image-load rule-in2 xyz))
          ;; birth/death intervals
          ;;(b1 0.278) (b2 0.365) (d1 0.267) (d2 0.445) ;; 2d from paper
-         ;; (b1 0.214) (b2 0.251) (d1 0.274) (d2 0.437) ;; 3d
-         (b1 0.227) (b2 0.251) (d1 0.227) (d2 0.445) ;; 3d
+         
+         ;;(b1 0.214) (b2 0.251) (d1 0.274) (d2 0.437) ;; 3d ; 9.2/2
+         ;;(b1 0.227) (b2 0.251) (d1 0.277) (d2 0.437) ;; 3d ; 9.2/2
+         ;;(b1 0.241) (b2 0.282) (d1 0.212) (d2 0.414)
+         ;;(b1 0.227) (b2 0.251) (d1 0.227) (d2 0.445) ;; 3d  9.2/2
+         ;;(b1 0.197) (b2 0.212) (d1 0.342) (d2 0.560)
+         (b1 0.180) (b2 0.202) (d1 0.118) (d2 0.285) ;; 12.2/3 0.028/140 glider?
+         ;;(b1 0.241) (b2 0.282) (d1 0.212) (d2 0.414) ;; 3d 10.1/3
+         ;;(b1 0.227) (b2 0.251) (d1 0.277) (d2 0.445) ;; 3d 14.5/2
+         ;;(b1 0.1) (b2 0.11) (d1 0.39) (d2 0.4)
 
          ;; junk
          ;;(b1 0.278) (b2 0.350) (d1 0.267) (d2 0.415)
@@ -683,7 +941,8 @@
     ;;(setf n (/ (float x) 512.0))
     ;;(setf m (/ (float y) 512.0))
     (image-store out1 xyz
-                 (vec4 (* 1 (ss2 n (ssm b1 d1 m) (ssm b2 d2 m)))
+                 (vec4 (* 1 (clamp (ss2 n (ssm b1 d1 m) (ssm b2 d2 m))
+                                   0.0 1.0))
                        0 0 0))))
 
 
