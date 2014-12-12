@@ -19,6 +19,7 @@
    ;;         s16 instead?
    ;;   real data = 2 x 1 component f16?
    ;;     possibly can reuse one of the fft buffers?
+   (prev-frame :accessor prev-frame :initform nil)
    (texture1 :accessor texture1 :initform nil)
    (texture2 :accessor texture2 :initform nil)
    (texture3 :accessor texture3 :initform nil)
@@ -35,7 +36,9 @@
    ;; timer queries for benchmarking
    (timestamps :accessor timestamps :initform nil)
    (timestamp-masks :accessor timestamp-masks :initform nil)
-   (times :accessor times :initform nil))
+   (times :accessor times :initform nil)
+   ;; which pass is currently rendering
+   (pass :accessor pass :initform 0))
   (:default-initargs :look-at-eye '(3 2 15)))
 
 ;; process:
@@ -240,6 +243,8 @@
     (unless (times w)
       (setf (times w)
             (loop repeat 16 collect (make-array 512 :initial-element 0))))
+    (unless (prev-frame w)
+      (setf (prev-frame w) (gen-texture)))
     (unless (texture1 w)
       (setf (texture1 w) (gen-texture)))
     (unless (texture2 w)
@@ -289,7 +294,7 @@
                (gl:tex-parameter :texture-3d :texture-mag-filter :linear)
 
                (fill-world (getf (programs w) :init-world)
-                           (world-init w) (texture1 w) 1
+                           (world-init w) (prev-frame w) 1
                            (/ *wx* 8) (/ *wy* 8) (/ *wz* 8))
                (gl:bind-texture :texture-3d 0)))
            (qq (n)
@@ -405,7 +410,8 @@
       (when (eql *step* :new)
         (progn #+let ((buf (make-array (* *wx* *wy* *wz* 2) :element-type 'single-float
                                                     :initial-element 0.0)))
-              (init-world))
+              (init-world)
+              (setf (pass w) 0))
         (setf *step* t))
       (when (eql *step* :auto)
         #++(let ((c 1))
@@ -430,57 +436,61 @@
           (setf *step* nil))
 
         (gl:bind-texture :texture-2d 0)
-        ;; fft
         (qq 0)
-        (fft-pass (getf (programs w) :fft-x)
-                  (texture1 w) (texture2 w) 256/16 1 256)
-        (qq 1)
-        (fft-pass (getf (programs w) :fft-y)
-                  (texture2 w) (texture3 w) 256/16 1 256)
-        (qq 2)
-        (fft-pass (getf (programs w) :fft-z)
-                  (texture3 w) (texture1 w) 256/16 256 1)
+        (case (pass w)
+          ;; fft
+          (0
+           (fft-pass (getf (programs w) :fft-x)
+                     (prev-frame w) (texture2 w) 256/16 1 256))
+          (1
+           (fft-pass (getf (programs w) :fft-y)
+                     (texture2 w) (texture3 w) 256/16 1 256))
+          (2
+           (fft-pass (getf (programs w) :fft-z)
+                     (texture3 w) (texture1 w) 256/16 256 1))
 
-        ;; convolve
-        (qq 3)
-        (convolve-pass (getf (programs w) :convolve)
-                       (kernel1 w) (texture1 w) (texture2 w)
-                       (/ *wx* 8) (/ *wy* 8) (/ *wz* 8))
-        (qq 4)
-        (convolve-pass (getf (programs w) :convolve)
-                       (kernel2 w) (texture1 w) (texture3 w)
-                       (/ *wx* 8) (/ *wy* 8) (/ *wz* 8))
+          ;; convolve
+          (3
+           (progn
+             (convolve-pass (getf (programs w) :convolve)
+                           (kernel1 w) (texture1 w) (texture2 w)
+                           (/ *wx* 8) (/ *wy* 8) (/ *wz* 8))
+             (convolve-pass (getf (programs w) :convolve)
+                            (kernel2 w) (texture1 w) (texture3 w)
+                            (/ *wx* 8) (/ *wy* 8) (/ *wz* 8))))
 
-        ;; ifft x2
-        (qq 5)
-        (fft-pass (getf (programs w) :ifft-x)
-                  (texture3 w) (texture4 w) 256/16 1 256)
-        (qq 6)
-        (fft-pass (getf (programs w) :ifft-y)
-                  (texture4 w) (texture3 w) 256/16 1 256)
-        (qq 7)
-        (fft-pass (getf (programs w) :ifft-z)
-                  (texture3 w) (texture4 w) 256/16 256 1)
-
-
-        (qq 8)
-        (fft-pass (getf (programs w) :ifft-x)
-                  (texture2 w) (texture3 w) 256/16 1 256)
-        (qq 9)
-        (fft-pass (getf (programs w) :ifft-y)
-                  (texture3 w) (texture2 w) 256/16 1 256)
-        (qq 10)
-        (fft-pass (getf (programs w) :ifft-z)
-                  (texture2 w) (texture3 w) 256/16 256 1)
+          ;; ifft x2
+          (4
+           (fft-pass (getf (programs w) :ifft-x)
+                     (texture3 w) (texture4 w) 256/16 1 256))
+          (5
+           (fft-pass (getf (programs w) :ifft-y)
+                     (texture4 w) (texture3 w) 256/16 1 256))
+          (6
+           (fft-pass (getf (programs w) :ifft-z)
+                     (texture3 w) (texture4 w) 256/16 256 1))
 
 
-        ;; rules
-        (qq 11)
-        (rules-pass (getf (programs w) :rules)
-                    (texture3 w) (texture4 w) (texture1 w)
-                    256/8 256/8 256/8))
+          (7
+           (fft-pass (getf (programs w) :ifft-x)
+                     (texture2 w) (texture3 w) 256/16 1 256))
+          (8
+           (fft-pass (getf (programs w) :ifft-y)
+                     (texture3 w) (texture2 w) 256/16 1 256))
+          (9
+           (fft-pass (getf (programs w) :ifft-z)
+                     (texture2 w) (texture3 w) 256/16 256 1))
 
-      (qq 12)
+
+          ;; rules
+          (10
+           (rules-pass (getf (programs w) :rules)
+                       (texture3 w) (texture4 w) (prev-frame w)
+                       256/8 256/8 256/8)))
+        (incf (pass w))
+        (when (> (pass w) 10)
+          (setf (pass w) 0)))
+      (qq 1)
 
 
       #++
@@ -490,7 +500,7 @@
                     256/32 256/32 1))
 
       (gl:bind-texture :texture-2d 0)
-      (gl:bind-texture :texture-3d (texture1 w))
+      (gl:bind-texture :texture-3d (prev-frame w))
       (gl:tex-parameter :texture-3d :texture-mag-filter :linear)
       (gl:use-program 0)
       (gl:with-pushed-matrix* (:modelview)
@@ -515,7 +525,7 @@
         (gl:blend-func :src-color :one-minus-src-color)
         (gl:disable :depth-test)
         (gl:with-primitives :quads
-          (loop for z from 0 below 1 by (/ 1 256.0)
+          (loop for z from 0 below 1 by (/ 1 254.0)
                 do
                    ;;(gl:tex-coord 1.5 1.5)
                    ;(gl:color 0.08 1 1 z)
@@ -533,10 +543,11 @@
                    ;;(gl:tex-coord 1.5 0.5)
                    (gl:tex-coord 1 0 z)
                    (gl:vertex 1 z -1)))
-        (qq 13)
+        (qq 2)
         (gl:disable :texture-3d)
         (gl:enable :depth-test)
         (gl:blend-func :src-alpha :one-minus-src-alpha)
+        (qq 3)
         (rotatef (first (timestamps w)) (second (timestamps w)))
         (rotatef (first (timestamp-masks w)) (second (timestamp-masks w)))
         #++(format t "check queries ~s~%"  (timestamp-masks w))
