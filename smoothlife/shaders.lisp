@@ -288,22 +288,91 @@
                   (setf (scratch lx ly stride ,i t) ,im))))
     (fft16 in out)))
 
+(defun fft16ilt (x y z lx ly stride)
+  (let ((y16 (* y 16))
+        #++(sc))
+    #++(declare ((:vec2 sc)))
+    #++(progn
+      (SETF (AREF SC 0) (.XY (IMAGE-LOAD TEX (IVEC3 X (+ Y 0) Z))))
+      (SETF (AREF SC 8) (.XY (IMAGE-LOAD TEX (IVEC3 X (+ Y 128) Z))))
+      (SETF (AREF SC 4) (.XY (IMAGE-LOAD TEX (IVEC3 X (+ Y 64) Z))))
+      (SETF (AREF SC 12) (.XY (IMAGE-LOAD TEX (IVEC3 X (+ Y 192) Z))))
+      (SETF (AREF SC 2) (.XY (IMAGE-LOAD TEX (IVEC3 X (+ Y 32) Z))))
+      (SETF (AREF SC 10) (.XY (IMAGE-LOAD TEX (IVEC3 X (+ Y 160) Z))))
+      (SETF (AREF SC 14) (.XY (IMAGE-LOAD TEX (IVEC3 X (+ Y 224) Z))))
+      (SETF (AREF SC 6) (.XY (IMAGE-LOAD TEX (IVEC3 X (+ Y 96) Z))))
+      (SETF (AREF SC 1) (.XY (IMAGE-LOAD TEX (IVEC3 X (+ Y 16) Z))))
+      (SETF (AREF SC 9) (.XY (IMAGE-LOAD TEX (IVEC3 X (+ Y 144) Z))))
+      (SETF (AREF SC 5) (.XY (IMAGE-LOAD TEX (IVEC3 X (+ Y 80) Z))))
+      (SETF (AREF SC 13) (.XY (IMAGE-LOAD TEX (IVEC3 X (+ Y 208) Z))))
+      (SETF (AREF SC 15) (.XY (IMAGE-LOAD TEX (IVEC3 X (+ Y 240) Z))))
+      (SETF (AREF SC 7) (.XY (IMAGE-LOAD TEX (IVEC3 X (+ Y 112) Z))))
+      (SETF (AREF SC 3) (.XY (IMAGE-LOAD TEX (IVEC3 X (+ Y 48) Z))))
+      (SETF (AREF SC 11) (.XY (IMAGE-LOAD TEX (IVEC3 X (+ Y 176) Z)))))
+
+    (macrolet ((in (i)
+                 `(.xy (image-load tex (ivec3 x (+ y ,(* 16 i)) z)))
+                 #++`(aref sc ,i))
+               (out (i re im)
+                 `(progn
+                    (let ((tw #++(.xy (image-load twiddle (ivec2 (+ ly ,i) 0)))
+                              #++(ivec2 (aref +ctwiddle+ (* (+ ,i ly) 2))
+                                        (aref +ctwiddle+ (+ 1 (* (+ ,i ly) 2))))
+                              #++(aref sc ,i)
+                              (vec2 (cos (* ,(float (* pi -2/256 i) 1.0)
+                                            (float ly)))
+                                    (sin (* ,(float (* pi -2/256 i) 1.0)
+                                            (float ly)))))
+                          (c (vec2 ,re ,im)))
+                      #++(setf (scratch lx ly stride ,i) (c*r c tw))
+                      #++(setf (scratch lx ly stride ,i t) (c*i c tw))
+                      (setf (scratch lx y16 1 ,i) (c*r c tw))
+                      (setf (scratch lx y16 1 ,i t) (c*i c tw))))))
+      (fft16 in out))))
+
 (defun fft16ilz (x y z lx ly stride)
-  (macrolet ((in (i)
-               `(.xy (image-load tex (ivec3 x y (+ z (* stride ,i))))))
-             (out (i re im)
-               `(progn
-                  (setf (scratch lx ly stride ,i) ,re)
-                  (setf (scratch lx ly stride ,i t) ,im))))
-    (fft16 in out)))
+  (let ((y16 (* ly 16)))
+    (macrolet ((in (i)
+                 `(.xy (image-load tex (ivec3 x y (+ z (* stride ,i))))))
+               (out (i re im)
+                 `(progn
+                    (let ((tw (vec2 (cos (* ,(float (* pi -2/256 i) 1.0)
+                                            (float ly)))
+                                    (sin (* ,(float (* pi -2/256 i) 1.0)
+                                            (float ly)))))
+                          (c (vec2 ,re ,im)))
+                      #++(setf (scratch lx ly stride ,i) (c*r c tw))
+                      #++(setf (scratch lx ly stride ,i t) (c*i c tw))
+                      (setf (scratch lx y16 1 ,i) (c*r c tw))
+                      (setf (scratch lx y16 1 ,i t) (c*i c tw)))))
+               #++(out (i re im)
+                    `(progn
+                       (setf (scratch lx ly stride ,i) ,re)
+                       (setf (scratch lx ly stride ,i t) ,im))))
+      (fft16 in out))))
 
 
-#++
-(defun fft16li (x y lx ly stride)
+(defun fft16lix (x y z lx ly stride)
   (macrolet ((in (i)
                `(vec2 (scratch2 lx ly stride ,i)))
              (out (i re im)
-               `(image-store out1 (ivec2 x (+ y (* stride ,i)))
+               `(image-store out1 (ivec3 (+ y (* stride ,i)) x z)
+                             (vec4 ,re ,im 0 0))))
+    (fft16 in out)))
+
+(defun fft16li (x y z lx ly stride)
+  (macrolet ((in (i)
+               `(vec2 (scratch2 lx ly stride ,i)))
+             (out (i re im)
+               `(image-store out1 (ivec3 x (+ y (* stride ,i)) z)
+                             (vec4 ,re ,im 0 0))))
+    (fft16 in out)))
+
+(defun fft16liz (x y z lx lz stride)
+  (macrolet ((in (i)
+               `(vec2 (scratch2 lx lz stride ,i)))
+             (out (i re im)
+               `(image-store out1 (ivec3 x y (+ z (* stride ,i)))
                              (vec4 ,re ,im 0 0))))
     (fft16 in out)))
 
@@ -316,6 +385,23 @@
                `(progn
                   (setf (scratch lx ly stride ,i) ,re)
                   (setf (scratch lx ly stride ,i t) ,im))))
+    (fft16 in out)))
+
+
+(defun fft16lt (lx ly stride)
+  (macrolet ((in (i)
+               `(vec2 (scratch2 lx ly stride ,i)))
+             (out (i re im)
+               `(progn
+                  (let ((tw (vec2 (cos (* ,(float (* pi -2/256 i) 1.0)
+                                          (float ly)))
+                                  (sin (* ,(float (* pi -2/256 i) 1.0)
+                                          (float ly)))))
+                        (c (vec2 ,re ,im)))
+                    (setf (scratch lx (* 16 ly) 1 ,i) (c*r c tw))
+                    (setf (scratch lx (* 16 ly) 1 ,i t) (c*i c tw))
+                    #++(setf (scratch lx ly stride ,i) (c*r c tw))
+                    #++(setf (scratch lx ly stride ,i t) (c*i c tw))))))
     (fft16 in out)))
 
 
@@ -494,12 +580,15 @@
       (write-local y lx r 16 :r-form (.y r) :i-form (.x r)))))
 
 (defmacro c*r (a b)
-  `(- (* (.x ,a) (.x ,b))
-      (* (.y ,a) (.y ,b))))
+  #++`(- (* (.x ,a) (.x ,b))
+      (* (.y ,a) (.y ,b)))
+  `(fma (.x ,a) (.x ,b)
+        (- (* (.y ,a) (.y ,b)))))
 
 (defmacro c*i (a b)
-  `(+ (* (.y ,a) (.x ,b))
-      (* (.x ,a) (.y ,b))))
+  #++`(fma (.y ,a) (.x ,b)
+        (* (.x ,a) (.y ,b)))
+  `(dot (.yx ,a) ,b))
 
 (defun twiddle-pass (x y1 ty)
   (let* ((y (* y1 16)))
@@ -535,28 +624,28 @@
     (barrier)
     ;; 256 pt
     ;; = 16pt fft
-    (fft16l lx ly 16)
+    (fft16lt lx ly 16)
     (barrier)
     ;;   + twiddle 16x16
-    (twiddle-pass lx y 0)
-    (barrier)
+    ;(twiddle-pass lx y 0)
+    ;(barrier)
     ;;   + transpose 16x16
-    (transposell lx y (* 16 y) 16 1)
-    (barrier)
+ ;   (transposell lx y (* 16 y) 16 1)
+    ;(barrier)
     ;; + 16 pt fft
-    (fft16l lx ly 16)
-    (barrier)
+    #++(fft16l lx ly 16)
+    (fft16lix x y z lx ly 16)
+    ;(barrier)
     ;; copy to dest image
-    (dotimes (i 16)
+    #++(dotimes (i 16)
       (let* ((y256 (+ (* i 16) y))
              (xy (ivec3 y256 x z))
              (yy (3bgl-shaders::uint y256)))
         ;; fixme: write out in X order instead of y
         (image-store out1 xy
-                     (* 1;#. (/ (sqrt 256.0))
-                        (vec4 (scratch lx yy 0 0)
-                              (scratch lx yy 0 0 t)
-                              0 0)))))))
+                     (vec4 (scratch lx yy 0 0)
+                           (scratch lx yy 0 0 t)
+                           0 0))))))
 
 
 (defun fft-y ()
@@ -570,23 +659,21 @@
     tex ;; fixme: compiler is missing dependencies somewhere
     ;; 256 pt
     ;; = 16pt fft
-    (fft16il x y z lx ly 16)
+;    (fft16il x y z lx ly 16)
+    (fft16ilt x y z lx ly 16)
     (barrier)
     ;;   + twiddle 16x16
-    (twiddle-pass lx y 0)
-    (barrier)
-    ;;   + transpose 16x16
-    (transposell lx y (* 16 y) 16 1)
-    (barrier)
-    ;; + 16 pt fft
-    (fft16l lx ly 16)
-    (barrier)
-;    (fft16lx lx ly 16)
-    (barrier)
 ;    (twiddle-pass lx y 0)
-    (barrier)
+;    (barrier)
+    ;;   + transpose 16x16
+;    (transposell lx y (* 16 y) 16 1)
+;    (barrier)
+    ;; + 16 pt fft
+ ;   (fft16l lx ly 16)
+    (fft16li x y z lx ly 16)
+;    (barrier)
     ;; copy to dest image
-    (dotimes (i 16)
+    #++(dotimes (i 16)
       (let* ((y256 (+ (* i 16) y))
              (xy (ivec3 x y256 z))
              (yy (3bgl-shaders::uint y256)))
@@ -610,16 +697,17 @@
     (fft16ilz x y z lx lz 16)
     (barrier)
     ;;   + twiddle 16x16
-    (twiddle-pass lx z 0)
-    (barrier)
+    ;(twiddle-pass lx z 0)
+    ;(barrier)
     ;;   + transpose 16x16
-    (transposell lx z (* 16 z) 16 1)
-    (barrier)
+    ;(transposell lx z (* 16 z) 16 1)
+    ;(barrier)
     ;; + 16 pt fft
-    (fft16l lx lz 16)
-    (barrier)
+    ;(fft16l lx lz 16)
+    (fft16liz x y z lx lz 16)
+    ;(barrier)
     ;; copy to dest image
-    (dotimes (i 16)
+    #++(dotimes (i 16)
       (let* ((z256 (+ (* i 16) z))
              (xy (ivec3 x y z256))
              (zz (3bgl-shaders::uint z256)))
