@@ -3,10 +3,10 @@
 (in-package #:3bgl-smoothlife)
 
 (defclass smoothlife (basecode-glop perspective-projection basecode-clear
-                        fps-graph basecode-draw-ground-plane
-                        freelook-camera
-                        basecode-exit-on-esc
-                        basecode-shader-helper::basecode-shader-helper)
+                      fps-graph basecode-draw-ground-plane
+                      freelook-camera
+                      basecode-exit-on-esc
+                      basecode-shader-helper::basecode-shader-helper)
   ((programs :accessor programs :initform nil)
    ;; textures
    ;; need:
@@ -89,7 +89,7 @@
               :convolve (3bgl-shaders::shader-program
                          :compute 'smoothlife-shaders::convolve)
               :rules (3bgl-shaders::shader-program
-                         :compute 'smoothlife-shaders::rules)
+                      :compute 'smoothlife-shaders::rules)
               :count (3bgl-shaders::shader-program
                       :compute 'smoothlife-shaders::count-pixels)
               :make-kernel (3bgl-shaders::shader-program
@@ -97,7 +97,7 @@
               :scale-kernel (3bgl-shaders::shader-program
                              :compute 'smoothlife-shaders::scale-kernel)
               :init-world (3bgl-shaders::shader-program
-                            :compute 'smoothlife-shaders::init-world))))
+                           :compute 'smoothlife-shaders::init-world))))
 
 (defun gen-texture2d (&key (w *wx*) (h *wy*) data)
   (let ((tex (car (gl:gen-textures 1 ))))
@@ -218,7 +218,7 @@
 (defmethod basecode-draw ((w smoothlife))
   (setf *w* w)
   (incf *frames*)
-;  (sleep 0.1)
+  ;; (sleep 0.1)
   (when (programs w)
     (unless (twiddle w)
       (setf (twiddle w) (gen-texture2d :w *wy* :h 2))
@@ -264,8 +264,7 @@
         (setf (cffi:mem-aref x :uint32) 1)
         (%gl:buffer-sub-data :atomic-counter-buffer 0 4 x))
       (gl:bind-buffer :atomic-counter-buffer 0))
-    (flet ((init-world (#++ buf)
-
+    (flet ((init-world ()
              ;; initialize texture1 to random values
              (let* ((wx (floor *wx* 8))
                     (wy (floor *wy* 8))
@@ -275,18 +274,8 @@
                                    :initial-element 1.0)))
                (loop for i below (array-total-size r)
                      do (setf (row-major-aref r i)
-                              (if (< (random 1.0) *fill*
-                                     )
+                              (if (< (random 1.0) *fill*)
                                   1.0 0.0)))
-               #++
-               (loop for i below (floor (array-total-size buf) 2)
-                     for x = (mod i *wx*)
-                     for y = (mod (floor i *wx*) *wy*)
-                     for z = (mod (floor i (* *wx* *wy*)) *wz*)
-                     do (setf (row-major-aref buf (* i 2))
-                              (aref r (floor x 8) (floor y 8) (floor z 8)))
-                        (setf (row-major-aref buf (1+ (* i 2)))
-                              0.0))
                (gl:bind-texture :texture-3d (world-init w))
                (gl:tex-image-3d :texture-3d 0 :r32f wx wy wz 0
                                 :rg :float r)
@@ -298,7 +287,6 @@
                            (/ *wx* 8) (/ *wy* 8) (/ *wz* 8))
                (gl:bind-texture :texture-3d 0)))
            (qq (n)
-             #++(format t "start query ~s = ~s~%" n (nth n (car (timestamps w))))
              (setf (aref (car (timestamp-masks w)) n) t)
              (%gl:query-counter (nth n (car (timestamps w)))
                                 :timestamp)))
@@ -308,92 +296,22 @@
         (unless (kernel2 w)
           (setf (kernel2 w) (gen-texture)))
         (assert (and (texture1 w) (texture2 w) (kernel1 w) (kernel2 w)))
-        (let* ((ra 12.2 ;9.3 ;(/ 21.0 2)
-                 )
-               ;;(ri (/ ra 3.0))
-               (ri (/ ra 3;2.0800838
-                      ))
-               (aa 1.0;(/ ra 4.0)
-                   )
-               #++(area1 (coerce (* pi (expt ri 2)) 'single-float))
-               #++(area2 (coerce (- (* pi (expt ra 2)) area1) 'single-float))
-               #++(buf (make-array (* *wx* *wy* *wz* 2) :element-type 'single-float
-                                                :initial-element 0.0)))
+        (let* ((ra 12.2)
+               (ri (/ ra 3))
+               (aa 1.0))
           (flet ((fft-x (w) (getf (programs w) :fft-x))
                  (fft-y (w) (getf (programs w) :fft-y))
-                 (fft-z (w) (getf (programs w) :fft-z))
-                 #++(filltex1 (rx area &optional rin)
-                   (print
-                    (loop
-                      for i below *wx*
-                      sum (loop
-                            for j below *wy*
-                            sum (loop
-                                  for k below *wz*
-                                  for x = (if (< i (/ *wx* 2) )
-                                              i
-                                              (- *wx* i))
-                                  for y = (if (< j (/ *wy* 2) )
-                                              j
-                                              (- *wy* j))
-                                  for z = (if (< k (/ *wz* 2) )
-                                              k
-                                              (- *wz* k))
-                                  for r = (sqrt (+ (* x x) (* y y)
-                                                   (* z z)))
-                                  for v1 = (cond
-                                             ((and rin
-                                                   (< r (- rin (/ aa 2))))
-                                              0)
-                                             ((and rin
-                                                   (< r (+ rin (/ aa 2))))
-                                              (/ (/ (- r (- rin (/ aa 2))) aa)
-                                                 area))
-                                             ((< r (- rx (/ aa 2)))
-                                              (/ 1 area))
-                                             ((> r (+ rx (/ aa 2)))
-                                              0)
-                                             (t
-                                              (/ (/ (- (+ rx (/ aa 2)) r) aa)
-                                                 area)))
-                                  do (setf (aref buf (* 2 (+ i
-                                                             (* *wx*
-                                                                (+ j
-                                                                   (* *wy*
-                                                                      k))))))
-                                           (coerce v1 'single-float))
-                                  sum (* area v1) ))))))
-            ;;(filltex ri area1)
-            (print ri)
-            ;;(filltex ri 154.55185) ;; fixme: calculate areas from radii
-            ;;(filltex ri 38.85737) ;; 3.5 2d
-            ;;(filltex ri 185.66074) ;; 3.5 3d
-            ;;(filltex ri 609.25824) ;; 10.5/2 3d
-            ;;;
-            #++(filltex1 ri 210.17245) ;; 4.6 3d
+                 (fft-z (w) (getf (programs w) :fft-z)))
             (filltex (getf (programs w) :make-kernel)
                      (texture2 w) (texture3 w)
-                     ri 0 0 aa 256/8 256/8 256/8) ;; 4.6 3d
+                     ri 0 0 aa 256/8 256/8 256/8)
             (scale-tex (getf (programs w) :scale-kernel)
-                     (texture2 w) (texture3 w) (texture1 w)
-                     256/8 256/8 256/8 :scale 1.0)
-            #++(gl:bind-texture :texture-2d 0)
-            #++(gl:bind-texture :texture-3d (texture1 w))
-            #++(gl:tex-image-3d :texture-3d 0 :rg32f *wx* *wy* *wz* 0 :rg :float buf)
+                       (texture2 w) (texture3 w) (texture1 w)
+                       256/8 256/8 256/8 :scale 1.0)
             (gl:bind-texture :texture-3d 0)
             (fft-pass (fft-x w) (texture1 w) (texture2 w) 256/16 1 256)
             (fft-pass (fft-y w) (texture2 w) (texture1 w) 256/16 1 256)
             (fft-pass (fft-z w) (texture1 w) (kernel1 w) 256/16 256 1)
-            ;;(filltex ra area2 ri)
-            (print ra)
-            ;;(filltex ra 1231.231 #++ area2 ri)
-            ;;(filltex ra 308.53482 ri) ;; 10.5 @ 2d
-            ;;(filltex ra 4677.9863 ri) ;; 10.5/3 @ 3d
-            ;;(filltex ra 4254.3887 ri) ;; 10.5/2 @ 3d
-            ;;(filltex ra 2866.113 ri) ;; 9.2/2 @ 3d
-            ;;(gl:bind-texture :texture-3d (texture1 w))
-            ;;(gl:tex-image-3d :texture-3d 0 :rg32f *wx* *wy* *wz* 0
-            ;;                 :rg :float buf)
             (filltex (getf (programs w) :make-kernel)
                      (texture2 w) (texture3 w)
                      ra 0 ri aa 256/8 256/8 256/8)
@@ -408,25 +326,23 @@
             )))
 
       (when (eql *step* :new)
-        (progn #+let ((buf (make-array (* *wx* *wy* *wz* 2) :element-type 'single-float
-                                                    :initial-element 0.0)))
-              (init-world)
-              (setf (pass w) 0))
+        (init-world)
+        (setf (pass w) 0)
         (setf *step* t))
       (when (eql *step* :auto)
         #++(let ((c 1))
-          (gl:bind-buffer :atomic-counter-buffer (counter w))
-          (cffi:with-foreign-object (x :uint32)
-            (%gl:get-buffer-sub-data :atomic-counter-buffer 0 4 x)
-            (setf c (cffi:mem-aref x :uint32))
-            (setf (cffi:mem-aref x :uint32) 0)
-            (%gl:buffer-sub-data :atomic-counter-buffer 0 4 x))
-          (gl:bind-buffer :atomic-counter-buffer 0)
-          (when (zerop c)
-            (let ((buf (make-array (* *wx* *wy* 2) :element-type 'single-float
-                                                   :initial-element 0.0))
-                  #++(*random-state* (make-random-state nil)))
-              (init-world buf)))))
+             (gl:bind-buffer :atomic-counter-buffer (counter w))
+             (cffi:with-foreign-object (x :uint32)
+               (%gl:get-buffer-sub-data :atomic-counter-buffer 0 4 x)
+               (setf c (cffi:mem-aref x :uint32))
+               (setf (cffi:mem-aref x :uint32) 0)
+               (%gl:buffer-sub-data :atomic-counter-buffer 0 4 x))
+             (gl:bind-buffer :atomic-counter-buffer 0)
+             (when (zerop c)
+               (let ((buf (make-array (* *wx* *wy* 2) :element-type 'single-float
+                                                      :initial-element 0.0))
+                     #++(*random-state* (make-random-state nil)))
+                 (init-world buf)))))
       (qq 0)
       (when *step*
         (%gl:bind-image-texture 2 (twiddle w) 0 nil 0 :read-only :rg32f)
@@ -453,8 +369,8 @@
           (3
            (progn
              (convolve-pass (getf (programs w) :convolve)
-                           (kernel1 w) (texture1 w) (texture2 w)
-                           (/ *wx* 8) (/ *wy* 8) (/ *wz* 8))
+                            (kernel1 w) (texture1 w) (texture2 w)
+                            (/ *wx* 8) (/ *wy* 8) (/ *wz* 8))
              (convolve-pass (getf (programs w) :convolve)
                             (kernel2 w) (texture1 w) (texture3 w)
                             (/ *wx* 8) (/ *wy* 8) (/ *wz* 8))))
@@ -520,15 +436,13 @@
         (gl:color-mask t t t t)
         (gl:color 1 1 1 1)
         (gl:enable :blend :texture-3d)
-        #++ (gl:blend-func :src-alpha :one  ;-minus-src-color
-                       )
         (gl:blend-func :src-color :one-minus-src-color)
         (gl:disable :depth-test)
         (gl:with-primitives :quads
           (loop for z from 0 below 1 by (/ 1 254.0)
                 do
                    ;;(gl:tex-coord 1.5 1.5)
-                   ;(gl:color 0.08 1 1 z)
+                   ;;(gl:color 0.08 1 1 z)
                    (gl:tex-coord 1 1 z)
                    (gl:vertex -1 z -1)
 
@@ -550,7 +464,6 @@
         (qq 3)
         (rotatef (first (timestamps w)) (second (timestamps w)))
         (rotatef (first (timestamp-masks w)) (second (timestamp-masks w)))
-        #++(format t "check queries ~s~%"  (timestamp-masks w))
         (cffi:with-foreign-objects ((done '%gl:int)
                                     (time '%gl:uint64))
           (loop with last = nil
@@ -560,8 +473,7 @@
                 for id in (car (timestamps w))
                 for i below 13
                 when (aref (car (timestamp-masks w)) i)
-                  do #++(format t "check query ~s = ~s~%" i id)
-                     (setf (aref (car (timestamp-masks w)) i) nil)
+                  do (setf (aref (car (timestamp-masks w)) i) nil)
                      (%gl:get-query-object-iv id :query-result-available done)
                      (when (plusp (cffi:mem-ref done '%gl:int))
                        (%gl:get-query-object-ui64v id :query-result time)
@@ -571,9 +483,6 @@
                                   last)))
                        (setf last (cffi:mem-ref time '%gl:uint64)))
                 ))
-        ;(gl:matrix-mode :modelview)
-        ;(gl:pop-matrix)
-
         (basecode::with-pixel-ortho-projection (w :origin :lower-left)
           (gl:disable :texture-2d :texture-3d)
           (gl:with-pushed-matrix* (:modelview)

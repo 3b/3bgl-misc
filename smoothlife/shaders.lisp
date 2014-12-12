@@ -274,7 +274,7 @@
 
 (defmacro c*i (a b)
   #++`(fma (.y ,a) (.x ,b)
-        (* (.x ,a) (.y ,b)))
+           (* (.x ,a) (.y ,b)))
   `(dot (.yx ,a) (.xy ,b)))
 
 (defun fft16lt (lx ly stride)
@@ -552,17 +552,13 @@
        (setf v1 0.0))
       ((and (> ri 0)
             (< r (+ ri (/ aa 2))))
-       (setf v1 #++(/ (/ (- r (- ri (/ aa 2))) aa)
-                   area)
-                (/ (- r (- ri (/ aa 2))) aa)))
+       (setf v1 (/ (- r (- ri (/ aa 2))) aa)))
       ((< r (- ra (/ aa 2)))
-       (setf v1 1.0 #++(/ 1 area)))
+       (setf v1 1.0))
       ((> r (+ ra (/ aa 2)))
        (setf v1 0.0))
       (t
-       (setf v1 (/ (- (+ ra (/ aa 2)) r) aa)
-             #++(/ (/ (- (+ ra (/ aa 2)) r) aa)
-                   area))))
+       (setf v1 (/ (- (+ ra (/ aa 2)) r) aa))))
     (image-store kernel pos (vec4 v1 0 0 0))
     ;; sum values in shared memory
     (macrolet ((s (xyz)
@@ -603,7 +599,7 @@
   ;; than running separate pass...)
   (let ((s 0.0)
         (loc (ivec3 (.xyz gl-local-invocation-id))))
-    tex kernel;; fixme: missing dependencies again?
+    tex kernel ;; fixme: missing dependencies again?
     (dotimes (i 4)
       (dotimes (j 4)
         (dotimes (k 4)
@@ -642,11 +638,6 @@
         ))
 
     (image-store out1 (ivec3 (.xyz gl-global-invocation-id))
-                 #++(vec4 (- s 2860)
-                       (.x (image-load tex (ivec3 (.xyz gl-work-group-id))))
-                       0 0)
-                 #++(vec4 (.y (image-load kernel (ivec3 (.xyz gl-global-invocation-id))))
-                          0 0 0)
                  (vec4 (* (/ (.x (image-load kernel (ivec3 (.xyz gl-global-invocation-id))))
                              s)
                           scale)
@@ -696,7 +687,7 @@
 ;; (discrete version)
 (defun rules ()
   (declare (layout (:in nil :local-size-x 8 :local-size-y 8
-                        :local-size-z 8)))
+                    :local-size-z 8)))
   (let* ((xyz (ivec3 (.xyz gl-global-invocation-id)))
          (a (image-load rule-in1 xyz))
          (b (image-load rule-in2 xyz))
@@ -718,12 +709,12 @@
          ;;(b1 0.278) (d1 0.237) (b2 0.365) (d2 0.445)
          ;;(b1 0.257) (b2 0.336) (d1 0.365) (d2 0.549)
          ;;(d1 0.1350) (b1 0.136) (b2 0.365) (d2 0.364)
-         ;(b1 0.221) (b2 0.325) (d1 0.465) (d2 0.589)
+         ;;(b1 0.221) (b2 0.325) (d1 0.465) (d2 0.589)
          ;;(b1 0.230) (b2 0.342) (d1 0.3) (d2 0.599)
          ;;(b1 0.230) (b2 0.3265) (d1 0.615) (d2 0.62)
          ;;(b1 0.2530) (b2 0.35) (d1 0.91) (d2 0.92)
          ;;(b1 0.2) (b2 0.2819) (d1 0.99) (d2 0.9999)
-         (n (.x b)) ;; n = 'neighborhood' = kernel2
+         (n (.x b))  ;; n = 'neighborhood' = kernel2
          (m (.x a))) ;; m = inner = kernel1
     ;;(setf n (/ (float x) 512.0))
     ;;(setf m (/ (float y) 512.0))
@@ -736,7 +727,7 @@
 ;;; hack to check for empty screen to allow restarting
 (defun count-pixels ()
   (declare (layout (:in nil :local-size-x 8 :local-size-y 8
-                        :local-size-z 8)))
-   (let* ((a (image-load tex (ivec3 (.xyz gl-global-invocation-id)))))
-     (when (> (.x a) 0.001)
-       (atomic-counter-increment counter))))
+                    :local-size-z 8)))
+  (let* ((a (image-load tex (ivec3 (.xyz gl-global-invocation-id)))))
+    (when (> (.x a) 0.001)
+      (atomic-counter-increment counter))))
