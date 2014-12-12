@@ -16,7 +16,7 @@
 
 ;; twiddle factors for FFT, x = element in FFT, y = pass
 ;; probably should move to local/constant once everything works?
-(uniform twiddle :image-2d :location 3 :layout (:rg32f t))
+;(uniform twiddle :image-2d :location 3 :layout (:rg32f t))
 
 (uniform rule-in1 :image-3d :location 0 :layout (:rg32f t))
 (uniform rule-in2 :image-3d :location 1 :layout (:rg32f t))
@@ -268,81 +268,14 @@
      (SETF T00008 (+ T00010 T00027))
      (,OUT 0 T00008 T00023)))
 
-(defun fft16il (x y z lx ly stride)
-  (macrolet ((in (i)
-               `(.xy (image-load tex (ivec3 x (+ y (* stride ,i)) z))))
-             (out (i re im)
-               `(progn
-                  (setf (scratch lx ly stride ,i) ,re)
-                  (setf (scratch lx ly stride ,i t) ,im))))
-    (fft16 in out)))
+(defmacro c*r (a b)
+  `(fma (.x ,a) (.x ,b)
+        (- (* (.y ,a) (.y ,b)))))
 
-(defun fft16ilt (x y z lx ly stride)
-  (let ((y16 (* y 16)))
-    (macrolet ((in (i)
-                 `(.xy (image-load tex (ivec3 x (+ y ,(* 16 i)) z))))
-               (out (i re im)
-                 `(progn
-                    (let ((tw (vec2 (cos (* ,(float (* pi -2/256 i) 1.0)
-                                            (float ly)))
-                                    (sin (* ,(float (* pi -2/256 i) 1.0)
-                                            (float ly)))))
-                          (c (vec2 ,re ,im)))
-                      (setf (scratch lx y16 1 ,i) (c*r c tw))
-                      (setf (scratch lx y16 1 ,i t) (c*i c tw))))))
-      (fft16 in out))))
-
-(defun fft16ilz (x y z lx ly stride)
-  (let ((y16 (* ly 16)))
-    (macrolet ((in (i)
-                 `(.xy (image-load tex (ivec3 x y (+ z (* stride ,i))))))
-               (out (i re im)
-                 `(progn
-                    (let ((tw (vec2 (cos (* ,(float (* pi -2/256 i) 1.0)
-                                            (float ly)))
-                                    (sin (* ,(float (* pi -2/256 i) 1.0)
-                                            (float ly)))))
-                          (c (vec2 ,re ,im)))
-                      (setf (scratch lx y16 1 ,i) (c*r c tw))
-                      (setf (scratch lx y16 1 ,i t) (c*i c tw))))))
-      (fft16 in out))))
-
-
-(defun fft16lix (x y z lx ly stride)
-  (macrolet ((in (i)
-               `(vec2 (scratch2 lx ly stride ,i)))
-             (out (i re im)
-               `(image-store out1 (ivec3 (+ y (* stride ,i)) x z)
-                             (vec4 ,re ,im 0 0))))
-    (fft16 in out)))
-
-(defun fft16li (x y z lx ly stride)
-  (macrolet ((in (i)
-               `(vec2 (scratch2 lx ly stride ,i)))
-             (out (i re im)
-               `(image-store out1 (ivec3 x (+ y (* stride ,i)) z)
-                             (vec4 ,re ,im 0 0))))
-    (fft16 in out)))
-
-(defun fft16liz (x y z lx lz stride)
-  (macrolet ((in (i)
-               `(vec2 (scratch2 lx lz stride ,i)))
-             (out (i re im)
-               `(image-store out1 (ivec3 x y (+ z (* stride ,i)))
-                             (vec4 ,re ,im 0 0))))
-    (fft16 in out)))
-
-
-
-(defun fft16l (lx ly stride)
-  (macrolet ((in (i)
-               `(vec2 (scratch2 lx ly stride ,i)))
-             (out (i re im)
-               `(progn
-                  (setf (scratch lx ly stride ,i) ,re)
-                  (setf (scratch lx ly stride ,i t) ,im))))
-    (fft16 in out)))
-
+(defmacro c*i (a b)
+  #++`(fma (.y ,a) (.x ,b)
+        (* (.x ,a) (.y ,b)))
+  `(dot (.yx ,a) (.xy ,b)))
 
 (defun fft16lt (lx ly stride)
   (macrolet ((in (i)
@@ -358,60 +291,12 @@
                     (setf (scratch lx (* 16 ly) 1 ,i t) (c*i c tw))))))
     (fft16 in out)))
 
-
-(defun ifft16il (x y z lx ly stride)
-  ;; doesn't actually do IFFT, just swaps re/im as first step in using
-  ;; normal FFT to calculate IFFT
-  (macrolet ((in (i)
-               `(.yx (image-load tex (ivec3 x (+ y (* stride ,i)) z))))
-             (out (i re im)
-               `(progn
-                  (setf (scratch lx ly stride ,i) ,re)
-                  (setf (scratch lx ly stride ,i t) ,im))))
-    (fft16 in out)))
-
-(defun ifft16ilz (x y z lx ly stride)
-  ;; doesn't actually do IFFT, just swaps re/im as first step in using
-  ;; normal FFT to calculate IFFT
-  (macrolet ((in (i)
-               `(.yx (image-load tex (ivec3 x y (+ z (* stride ,i))))))
-             (out (i re im)
-               `(progn
-                  (setf (scratch lx ly stride ,i) ,re)
-                  (setf (scratch lx ly stride ,i t) ,im))))
-    (fft16 in out)))
-
-
 (defmacro with-image-vars ((x y z base-var count) &body body)
   `(let (,@(loop for i below count
                  for s =  (alexandria:format-symbol t
                                                     "~a~d" base-var i)
                  collect (list s `(image-load tex (ivec3 (+ ,y ,i)
                                                          ,x ,z)))))
-     ,@body))
-
-(defmacro with-local-vars ((x y base-var count &key stride) &body body)
-  `(let (,@(loop for i below count
-                 for s = (alexandria:format-symbol t
-                                                   "~a~d" base-var i)
-                 collect (list s `(scratch2 ,x ,y ,stride ,i))))
-     ,@body))
-
-(defmacro with-twiddle-vars ((y ty base-var count) &body body)
-  `(let (,@(loop for i below count
-                 for s = (alexandria:format-symbol t
-                                                   "~a~d" base-var i)
-                 collect (list s `(image-load twiddle (ivec2 (+ ,y ,i) ,ty)))))
-     ,@body))
-
-(defmacro with-cxtwiddle-vars ((y1 ty base-var count) &body body)
-  `(let (,@(loop for i below count
-                 for s = (alexandria:format-symbol t "~a~d" base-var i)
-                 collect (list s
-                               `(vec2 (cos (* ,(float (* pi -2/256 i) 1.0)
-                                               (float ,y1)))
-                                      (sin (* ,(float (* pi -2/256 i) 1.0)
-                                               (float ,y1)))))))
      ,@body))
 
 (defmacro write-local (y lx base-var count &key base-var2
@@ -445,89 +330,95 @@
              collect
              `(setf (scratch ,lx ,y ,stride ,i t) ,f))))
 
-(defun loadx (x y1 z lx)
-  (let ((y (* y1 16)))
-    (with-image-vars (x y z r 16)
-     (write-local y lx r 16))))
-
-
-(defun loadxt (x y1 z lx)
-  ;; swap real/imag components for use in calculating IFFT
-  (let ((y (* y1 16)))
-    (with-image-vars (x y z r 16)
-      (write-local y lx r 16 :r-form (.y r) :i-form (.x r)))))
-
-(defmacro c*r (a b)
-  `(fma (.x ,a) (.x ,b)
-        (- (* (.y ,a) (.y ,b)))))
-
-(defmacro c*i (a b)
-  #++`(fma (.y ,a) (.x ,b)
-        (* (.x ,a) (.y ,b)))
-  `(dot (.yx ,a) ,b))
-
-(defun twiddle-pass (x y1 ty)
-  (let* ((y (* y1 16)))
-    (;;with-twiddle-vars (y ty t 16)
-     with-cxtwiddle-vars (y1 ty t 16)
-      (with-local-vars (x y r 16 :stride 1)
-        (write-local y x r 16 :base-var2 t
-                     :r-form (c*r r t)
-                     :i-form (c*i r t))))))
-
-(defun transposell (lx sy dy sstride dstride)
-  (with-local-vars (lx sy r 16 :stride sstride)
-    (barrier)
-    (write-local dy lx r 16 :stride dstride)))
-
 (defun fft-x ()
   (declare (layout (:in nil :local-size-x 16 :local-size-y 16 :local-size-z 1)))
-  (let ((x (.x gl-global-invocation-id))
-        (y (.y gl-global-invocation-id))
-        (z (.z gl-global-invocation-id))
-        (lx (.x gl-local-invocation-id))
-        (ly (.y gl-local-invocation-id)))
-    (loadx x y z lx)
+  (let* ((x (.x gl-global-invocation-id))
+         (y (.y gl-global-invocation-id))
+         (z (.z gl-global-invocation-id))
+         (lx (.x gl-local-invocation-id))
+         (ly (.y gl-local-invocation-id))
+         (y16 (* y 16)))
+    (with-image-vars (x y16 z r 16)
+      (write-local y16 lx r 16))
     (barrier)
     ;; 256 pt
     ;; = 16pt fft + twiddle + transpose
     (fft16lt lx ly 16)
     (barrier)
     ;; + 16 pt fft
-    (fft16lix x y z lx ly 16)))
-
+    (macrolet ((in (i)
+                 `(vec2 (scratch2 lx ly 1 ,(* 16 i))))
+               (out (i re im)
+                 `(image-store out1
+                               (ivec3 (+ y ,(* 16 i)) x z)
+                               (vec4 ,re ,im 0 0))))
+      (fft16 in out))))
 
 (defun fft-y ()
   (declare (layout (:in nil :local-size-x 16 :local-size-y 16
-                        :local-size-z 1)))
-  (let ((x (.x gl-global-invocation-id))
-        (y (.y gl-global-invocation-id))
-        (z (.z gl-global-invocation-id))
-        (lx (.x gl-local-invocation-id))
-        (ly (.y gl-local-invocation-id)))
+                    :local-size-z 1)))
+  (let* ((x (.x gl-global-invocation-id))
+         (y (.y gl-global-invocation-id))
+         (z (.z gl-global-invocation-id))
+         (lx (.x gl-local-invocation-id))
+         (ly (.y gl-local-invocation-id))
+         (y16 (* y 16)))
     tex ;; fixme: compiler is missing dependencies somewhere
     ;; 256 pt
     ;; = 16pt fft + twiddle + transpose
-    (fft16ilt x y z lx ly 16)
+    (macrolet ((in (i)
+                 `(.xy (image-load tex (ivec3 x (+ y ,(* 16 i)) z))))
+               (out (i re im)
+                 `(progn
+                    (let ((tw (vec2 (cos (* ,(float (* pi -2/256 i) 1.0)
+                                            (float ly)))
+                                    (sin (* ,(float (* pi -2/256 i) 1.0)
+                                            (float ly)))))
+                          (c (vec2 ,re ,im)))
+                      (setf (scratch lx y16 1 ,i) (c*r c tw))
+                      (setf (scratch lx y16 1 ,i t) (c*i c tw))))))
+      (fft16 in out))
     (barrier)
     ;; + 16 pt fft
-    (fft16li x y z lx ly 16)))
+    (macrolet ((in (i)
+                 `(vec2 (scratch2 lx ly 1 ,(* 16 i))))
+               (out (i re im)
+                 `(image-store out1
+                               (ivec3 x (+ y ,(* 16 i)) z)
+                               (vec4 ,re ,im 0 0))))
+      (fft16 in out))))
 
 (defun fft-z ()
   (declare (layout (:in nil :local-size-x 16 :local-size-y 1
-                        :local-size-z 16)))
-  (let ((x (.x gl-global-invocation-id))
-        (y (.y gl-global-invocation-id))
-        (z (.z gl-global-invocation-id))
-        (lx (.x gl-local-invocation-id))
-        (lz (.z gl-local-invocation-id)))
+                    :local-size-z 16)))
+  (let* ((x (.x gl-global-invocation-id))
+         (y (.y gl-global-invocation-id))
+         (z (.z gl-global-invocation-id))
+         (lx (.x gl-local-invocation-id))
+         (lz (.z gl-local-invocation-id))
+         (z16 (* lz 16)))
     tex ;; fixme: compiler is missing dependencies somewhere
     ;; 256 pt
     ;; = 16pt fft + twiddle + transpose
-    (fft16ilz x y z lx lz 16)
+    (macrolet ((in (i)
+                 `(.xy (image-load tex (ivec3 x y (+ z ,(* 16 i))))))
+               (out (i re im)
+                 `(let ((tw (vec2 (cos (* ,(float (* pi -2/256 i) 1.0)
+                                          (float lz)))
+                                  (sin (* ,(float (* pi -2/256 i) 1.0)
+                                          (float lz)))))
+                        (c (vec2 ,re ,im)))
+                    (setf (scratch lx z16 1 ,i) (c*r c tw))
+                    (setf (scratch lx z16 1 ,i t) (c*i c tw)))))
+      (fft16 in out))
     (barrier)
     ;; + 16 pt fft
-    (fft16liz x y z lx lz 16)))
+    (macrolet ((in (i)
+                 `(vec2 (scratch2 lx lz 1 ,(* 16 i))))
+               (out (i re im)
+                 `(image-store out1 (ivec3 x y (+ z ,(* 16 i)))
+                               (vec4 ,re ,im 0 0))))
+      (fft16 in out))))
 
 (defun convolve ()
   (declare (layout (:in nil :local-size-x 8 :local-size-y 8
@@ -541,107 +432,102 @@
                        0 0))))
 
 (defun ifft-x ()
-  (declare (layout (:in nil :local-size-x 16 :local-size-y 16
-                        :local-size-z 1)))
+  (declare (layout (:in nil :local-size-x 16 :local-size-y 16 :local-size-z 1)))
   ;; calculate IFFT by swapping RE/IM on input and output, and
   ;; dividing result by N
-  (let ((x (.x gl-global-invocation-id))
-        (y (.y gl-global-invocation-id))
-        (z (.z gl-global-invocation-id))
-        (lx (.x gl-local-invocation-id))
-        (ly (.y gl-local-invocation-id)))
-    (loadxt x y z lx)
+  (let* ((x (.x gl-global-invocation-id))
+         (y (.y gl-global-invocation-id))
+         (z (.z gl-global-invocation-id))
+         (lx (.x gl-local-invocation-id))
+         (ly (.y gl-local-invocation-id))
+         (y16 (* y 16)))
+    (with-image-vars (x y16 z r 16)
+      (write-local y16 lx r 16 :r-form (.y r) :i-form (.x r)))
     (barrier)
     ;; 256 pt
-    ;; = 16pt fft
-    (barrier)
-    (fft16l lx ly 16)
-    (barrier)
-    ;;   + twiddle 16x16
-    (twiddle-pass lx y 0)
-    (barrier)
-    ;;   + transpose 16x16
-    (transposell lx y (* 16 y) 16 1)
+    ;; = 16pt fft + twiddle + transpose
+    (fft16lt lx ly 16)
     (barrier)
     ;; + 16 pt fft
-    (fft16l lx ly 16)
-    (barrier)
-    ;; copy to dest image
-    (dotimes (i 16)
-      (let* ((y256 (+ (* i 16) y))
-             (xy (ivec3 y256 x z))
-             (yy (3bgl-shaders::uint y256)))
-        (image-store out1 xy
-                     (* #. (/ 1.0 256.0)
-                        (vec4 (scratch lx yy 0 0 t)
-                              (scratch lx yy 0 0)
-                              0 0)))))))
+    (macrolet ((in (i)
+                 `(vec2 (scratch2 lx ly 1 ,(* 16 i))))
+               (out (i re im)
+                 `(image-store out1
+                               (ivec3 (+ y ,(* 16 i)) x z)
+                               (* #.(/ 1.0 256.0)
+                                  (vec4 ,im ,re 0 0)))))
+      (fft16 in out))))
 
 (defun ifft-y ()
   (declare (layout (:in nil :local-size-x 16 :local-size-y 16
-                        :local-size-z 1)))
-  (let ((x (.x gl-global-invocation-id))
-        (y (.y gl-global-invocation-id))
-        (z (.z gl-global-invocation-id))
-        (lx (.x gl-local-invocation-id))
-        (ly (.y gl-local-invocation-id)))
+                    :local-size-z 1)))
+  ;; calculate IFFT by swapping RE/IM on input and output, and
+  ;; dividing result by N
+  (let* ((x (.x gl-global-invocation-id))
+         (y (.y gl-global-invocation-id))
+         (z (.z gl-global-invocation-id))
+         (lx (.x gl-local-invocation-id))
+         (ly (.y gl-local-invocation-id))
+         (y16 (* y 16)))
     tex ;; fixme: compiler is missing dependencies somewhere
     ;; 256 pt
-    ;; = 16pt fft
-    (ifft16il x y z lx ly 16)
-    (barrier)
-    ;;   + twiddle 16x16
-    (twiddle-pass lx y 0)
-    (barrier)
-    ;;   + transpose 16x16
-    (transposell lx y (* 16 y) 16 1)
+    ;; = 16pt fft + twiddle + transpose
+    (macrolet ((in (i)
+                 `(.yx (image-load tex (ivec3 x (+ y ,(* 16 i)) z))))
+               (out (i re im)
+                 `(progn
+                    (let ((tw (vec2 (cos (* ,(float (* pi -2/256 i) 1.0)
+                                            (float ly)))
+                                    (sin (* ,(float (* pi -2/256 i) 1.0)
+                                            (float ly)))))
+                          (c (vec2 ,re ,im)))
+                      (setf (scratch lx y16 1 ,i) (c*r c tw))
+                      (setf (scratch lx y16 1 ,i t)(c*i c tw))))))
+      (fft16 in out))
     (barrier)
     ;; + 16 pt fft
-    (fft16l lx ly 16)
-    (barrier)
-    ;; copy to dest image
-    (dotimes (i 16)
-      (let* ((y256 (+ (* i 16) y))
-             (xy (ivec3 x y256 z))
-             (yy (3bgl-shaders::uint y256)))
-        (image-store out1 xy
-                     (* #.(/ 1.0 256.0)
-                        (vec4 (scratch lx yy 0 0 t)
-                              (scratch lx yy 0 0)
-                              0 0)))))))
+    (macrolet ((in (i)
+                 `(vec2 (scratch2 lx ly 1 ,(* 16 i))))
+               (out (i re im)
+                 `(image-store out1
+                               (ivec3 x (+ y ,(* 16 i)) z)
+                               (* #.(/ 1.0 256.0)
+                                  (vec4 ,im ,re 0 0)))))
+      (fft16 in out))))
 
 (defun ifft-z ()
   (declare (layout (:in nil :local-size-x 16 :local-size-y 1
-                        :local-size-z 16)))
-  (let ((x (.x gl-global-invocation-id))
-        (y (.y gl-global-invocation-id))
-        (z (.z gl-global-invocation-id))
-        (lx (.x gl-local-invocation-id))
-        (lz (.z gl-local-invocation-id)))
+                    :local-size-z 16)))
+  (let* ((x (.x gl-global-invocation-id))
+         (y (.y gl-global-invocation-id))
+         (z (.z gl-global-invocation-id))
+         (lx (.x gl-local-invocation-id))
+         (lz (.z gl-local-invocation-id))
+         (z16 (* lz 16)))
     tex ;; fixme: compiler is missing dependencies somewhere
     ;; 256 pt
-    ;; = 16pt fft
-    (ifft16ilz x y z lx lz 16)
-    (barrier)
-    ;;   + twiddle 16x16
-    (twiddle-pass lx z 0)
-    (barrier)
-    ;;   + transpose 16x16
-    (transposell lx z (* 16 z) 16 1)
+    ;; = 16pt fft + twiddle + transpose
+    (macrolet ((in (i)
+                 `(.yx (image-load tex (ivec3 x y (+ z ,(* 16 i))))))
+               (out (i re im)
+                 `(let ((tw (vec2 (cos (* ,(float (* pi -2/256 i) 1.0)
+                                          (float lz)))
+                                  (sin (* ,(float (* pi -2/256 i) 1.0)
+                                          (float lz)))))
+                        (c (vec2 ,re ,im)))
+                    (setf (scratch lx z16 1 ,i) (c*r c tw))
+                    (setf (scratch lx z16 1 ,i t) (c*i c tw)))))
+      (fft16 in out))
     (barrier)
     ;; + 16 pt fft
-    (fft16l lx lz 16)
-    (barrier)
-    ;; copy to dest image
-    (dotimes (i 16)
-      (let* ((z256 (+ (* i 16) z))
-             (xy (ivec3 x y z256))
-             (zz (3bgl-shaders::uint z256)))
-        (image-store out1 xy
-                     (* 1 #.(/ 1.0 256.0)
-                        (vec4 (scratch lx zz 0 0 t)
-                              (scratch lx zz 0 0)
-                              0 0)))))))
+    (macrolet ((in (i)
+                 `(vec2 (scratch2 lx lz 1 ,(* 16 i))))
+               (out (i re im)
+                 `(image-store out1 (ivec3 x y (+ z ,(* 16 i)))
+                               (* #.(/ 256.0)
+                                  (vec4 ,im ,re 0 0)))))
+      (fft16 in out))))
+
 
 ;;; filter kernels
 ;; builds unscaled kernel in 'kernel', partically reduced total volume in out1
@@ -770,6 +656,7 @@
 ;; input = 16^3 (or whatever) random texture in tex1
 ;; out = 256^3 texture in out1, with input stretched/tiled
 (uniform random-tex :sampler-3d :location 1)
+
 (defun init-world ()
   (declare (layout (:in nil :local-size-x 8 :local-size-y 8 :local-size-z 8)))
   (let* ((pos (ivec3 (.xyz gl-global-invocation-id)))
@@ -815,7 +702,7 @@
          (b (image-load rule-in2 xyz))
          ;; birth/death intervals
          ;;(b1 0.278) (b2 0.365) (d1 0.267) (d2 0.445) ;; 2d from paper
-         
+
          ;;(b1 0.214) (b2 0.251) (d1 0.274) (d2 0.437) ;; 3d ; 9.2/2
          ;;(b1 0.227) (b2 0.251) (d1 0.277) (d2 0.437) ;; 3d ; 9.2/2
          ;;(b1 0.241) (b2 0.282) (d1 0.212) (d2 0.414)
