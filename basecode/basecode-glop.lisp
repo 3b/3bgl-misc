@@ -137,25 +137,28 @@
 (defgeneric basecode-child-reparent (w child parent x y)
   (:method (w c p x y)))
 
+#-win32
 (defmethod glop:on-event ((w %basecode-glop-window)
                           (event glop::child-visibility-unobscured-event))
   (declare (optimize debug))
   (with-continue-restart
     (basecode-child-mapped (%basecode-window w) (glop::child event))))
 
+#-win32
 (defmethod glop:on-event ((w %basecode-glop-window)
                           (event glop::child-visibility-obscured-event))
   (declare (optimize debug))
   (with-continue-restart
     (basecode-child-unmapped (%basecode-window w) (glop::child event))))
 
+#-win32
 (defmethod glop:on-event ((w %basecode-glop-window)
                           (event glop::child-resize-event))
   (declare (optimize debug))
   (with-continue-restart
     (basecode-child-resized (%basecode-window w) (glop::child event)
                              (glop::width event) (glop::height event))))
-
+#-win32
 (defmethod glop:on-event ((w %basecode-glop-window)
                           (event glop::child-reparent-event))
   (declare (optimize debug))
