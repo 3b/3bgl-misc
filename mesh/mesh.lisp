@@ -47,7 +47,6 @@
           ((<= end start)
            (return-from draw nil))))
        #++(when end (assert (<= start end (index-count mesh))))
-       (gl:point-size 3)
        (%gl:draw-elements mode (if end
                                    (- end start)
                                    (- (index-count mesh) start))
