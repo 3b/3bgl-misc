@@ -48,3 +48,22 @@
   (recompile-modified-shaders w)
   (call-next-method))
 
+
+(defmethod mvp ((w freelook-camera) program &key (m (sb-cga:identity-matrix)))
+  (let* ((v (basecode::freelook-camera-modelview w))
+         (p (basecode::projection-matrix w))
+         (mv (sb-cga:matrix* v m))
+         (mvp (sb-cga:matrix* p v m)))
+    (setf (3bgl-shaders::uniform program "time")
+          (float
+           (/ (get-internal-real-time)
+              internal-time-units-per-second)))
+    (setf (3bgl-shaders::uniform program "m") m
+          (3bgl-shaders::uniform program "v") v
+          (3bgl-shaders::uniform program "p") p
+          (3bgl-shaders::uniform program "mv") mv
+          (3bgl-shaders::uniform program "mvp") mvp
+          (3bgl-shaders::uniform program "normalMatrix") mv
+          (3bgl-shaders::uniform program "eyePos") (basecode::freelook-camera-position w)))
+  )
+
