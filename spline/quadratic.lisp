@@ -59,7 +59,17 @@ third value."
   ;; todo: version that optimizes for a fixed segment budget
   ;; implementing this from memory, probably buggy...
   (when (not (or angle-tolerance-rad max-error max-depth))
-    (return-from subdivide-quadratic (vector start control end)))
+    (return-from subdivide-quadratic
+      (if normals
+          (values
+           (vector start control end)
+           (vector (evaluate-quadratic-normal start control end 0.0)
+                   (evaluate-quadratic-normal start control end 0.5)
+                   (evaluate-quadratic-normal start control end 1.0))
+           (vector (evaluate-quadratic-tangent start control end 0.0)
+                   (evaluate-quadratic-tangent start control end 0.5)
+                   (evaluate-quadratic-tangent start control end 1.0)))
+          (vector start control end))))
   (let ((angle-tolerance-sin (when angle-tolerance-rad
                                (sin (min (abs angle-tolerance-rad)
                                          (/ pi 2)))))
