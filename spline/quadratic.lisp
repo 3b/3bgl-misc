@@ -70,6 +70,17 @@ third value."
                    (evaluate-quadratic-tangent start control end 0.5)
                    (evaluate-quadratic-tangent start control end 1.0)))
           (vector start control end))))
+  (when (or (equalp start control)
+            (equalp control end))
+    (return-from subdivide-quadratic
+      (if normals
+          (values
+           (vector start end)
+           (vector (sb-cga:vec 0.0 0.0 0.0) ;; not sure what to return for these?
+                   (sb-cga:vec 0.0 0.0 0.0))
+           (vector (sb-cga:vec- start end)
+                   (sb-cga:vec- end start)))
+          (vector start end))))
   (let ((angle-tolerance-sin (when angle-tolerance-rad
                                (sin (min (abs angle-tolerance-rad)
                                          (/ pi 2)))))
@@ -77,6 +88,8 @@ third value."
         (normals (when normals (make-array 3 :adjustable t :fill-pointer 0)))
         (tangents (when normals (make-array 3 :adjustable t :fill-pointer 0))))
     (labels ((check-tolerances (ds c de p d)
+               ;; sanity check
+               (assert (< d 1000))
                ;; return t when segment is within tolerances (and doesn't
                ;; need subdivided further)
                ;; ds and de are normalized vectors from start->c and c->end
