@@ -94,7 +94,11 @@
                                 &rest more-bindings) &body body)
   (let ((lisp-type (ecase gl-type
                     (:float 'single-float)
+                    (:unsigned-int '(unsigned-byte 32))
+                    (:signed-int '(signed-byte 32))
+                    (:int '(signed-byte 32))
                     (:unsigned-short '(unsigned-byte 16))
+                    (:signed-short '(signed-byte 16))
                     (:unsigned-byte '(unsigned-byte 8))
                     (:byte '(signed-byte 8))
                     )))
@@ -171,10 +175,15 @@
               do
                 (gl:enable-vertex-attrib-array loc)
                 (gl:bind-buffer :array-buffer vbo)
+                (format t "upload ~s: ~sx~s=~s / ~s ~s ~s~%"
+                        name (length buffer) size (* (length buffer) size)
+                        loc count type)
                 (%gl:buffer-data :array-buffer (* (length buffer) size)
                                  (static-vectors:static-vector-pointer buffer)
                                  :static-draw)
-                (gl:vertex-attrib-pointer loc count type nil 0 (cffi:null-pointer)))
+                (if (eq type :float)
+                    (gl:vertex-attrib-pointer loc count type nil 0 (cffi:null-pointer))
+                    (gl:vertex-attrib-ipointer loc count type 0 (cffi:null-pointer))))
            (prog1
                (make-instance 'mesh
                               :vbos vbos :vao vao
