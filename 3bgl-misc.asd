@@ -53,7 +53,9 @@
     :serial t
     :components ((:file "package")
                  (:file "mesh")
-                 (:file "shaders")))
+                 (:file "shaders")
+                 (:file "util")
+))
    (:module "skybox"
     :serial t
     :components ((:file "package")
@@ -72,7 +74,7 @@
     :serial t
     :components ((:file "package")))
 
-   #++(:module "ttf"
+   (:module "ttf"
             :serial t
             :components
             ((:file "package")
