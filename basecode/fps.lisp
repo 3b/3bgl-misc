@@ -82,7 +82,7 @@
                              (mod (+ x (fps-history-index w)) l))
                do (gl:vertex x (- 100 y) 0)))))
       (when (> (- start (last-fps-time w)) 0.03)
-        (let ((d (- start (last-fps-time w))))
+        (let ((d (- stop (last-fps-time w))))
           (setf (aref (fps-history w) (fps-history-index w))
                 (/ (current-fps-sample-count w)
                    d))
@@ -98,8 +98,5 @@
           )
         )
       (incf (current-fps-sample-count w))
-      (setf (last-frame-time w) start)
-
-)
-    )
+      (setf (last-frame-time w) start)))
 )
