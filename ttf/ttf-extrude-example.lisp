@@ -153,9 +153,9 @@
 (defun ttf-tess ()
   (let ((w (make-instance 'ttf-tess-window
                           :font-path
-                          #++"/usr/share/fonts/truetype/msttcorefonts/Georgia.ttf"
-                          (merge-pathnames "georgia.ttf"
-                                           (user-homedir-pathname)))))
+                          (or (probe-file "/usr/share/fonts/truetype/msttcorefonts/Georgia.ttf")
+                              (probe-file (merge-pathnames "georgia.ttf"
+                                                           (user-homedir-pathname)))))))
     (unwind-protect
 	 (basecode-run w)
       (glut:destroy-window (glut:id w)))))
