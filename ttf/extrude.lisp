@@ -209,7 +209,9 @@ and indicated when current segment is the last one"
                      (3bgl-splines:subdivide-quadratic
                       (cpvec s) (cpvec c) (cpvec e)
                       :normals t
-                      :angle-tolerance-rad (* 15 (/ pi 180)))
+                      :max-depth nil
+                      :angle-tolerance-rad (* 30 (/ pi 180))
+                      :max-error nil)
                    (loop for i from 0 below  (length points)
                       for p = (aref points i)
                       for n = (if invert-normal

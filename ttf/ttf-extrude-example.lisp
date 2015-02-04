@@ -19,7 +19,7 @@
    (angle :accessor angle :initform 0.0)
    (wireframe :accessor wireframe :initform nil))
   (:default-initargs :width 640 :height 480 :title "ttf-extrude"
-                     :mesh-count 64
+                     :mesh-count 1000
                      :look-at-eye '(-5 10 -15)))
 
 (defmethod free-buffers ((w ttf-tess-window))
@@ -69,15 +69,17 @@
 (defmethod basecode-init ((w ttf-tess-window))
   (declare (optimize debug))
 
+  (glut:set-key-repeat :key-repeat-off)
   (load-glyphs w))
 
 (defmethod glut:tick ((w ttf-tess-window))
   (glut:post-redisplay))
 
 (defparameter *tris* 0)
-
+(defparameter *w* nil)
 (defmethod basecode-draw ((w ttf-tess-window))
   (declare (optimize debug))
+  (setf *w* w)
   (let ((seconds-per-revolution 6))
     (incf (angle w)
           (/ (* 2 pi) (* 5 seconds-per-revolution))))
@@ -94,46 +96,47 @@
                    :depth-test :lighting :light0 :multisample)
         (gl:point-size 1)
         (gl:blend-func :src-alpha :one-minus-src-alpha)
-        (gl:enable :cull-face)
+        (gl:disable :cull-face)
         (gl:light :light0 :position (list 0.2 0.7 0.2 1.0))
         (gl:with-pushed-matrix* (:modelview)
           (rx)
           (loop for vao in (vaos w)
-             for i from 0
-             for count across (counts w)
-             for tx = 2
-             for d = 6
-             for x = (mod i d)
-             for y = (mod (floor i d) d)
-             for z = (floor i (expt d 2))
-             do
-               (gl:with-pushed-matrix* (:modelview)
-                 (incf tris count)
-                 (gl:translate (* (- x (* d 0.5)) tx)
-                               (* y tx)
-                               (* (+ z (* d -0.5)) tx))
+                for i from 0
+                for count across (counts w)
+                for tx = 1
+                for d = 25
+                for dh = 80
+                for x = (mod i d)
+                for y = (mod (floor i d) dh)
+                for z = (floor i (* d dh))
+                do
+                   (gl:with-pushed-matrix* (:modelview)
+                     (incf tris count)
+                     (gl:translate (* (- x (* d 0.5)) tx)
+                                   (* y tx)
+                                   (* (+ z (* d -0.5)) tx))
 
-                 (gl:bind-vertex-array vao)
-                 (gl:point-size 5)
-                 (gl:disable :lighting)
-                 (gl:color 0 1 0 0.4)
-                 #++(gl:draw-elements :points (gl:make-null-gl-array :unsigned-short) :count count)
-                 (if (wireframe w)
-                     (progn
-                       (gl:disable :lighting)
-                       (gl:color 0 0 0 1)
-                       (gl:polygon-mode :front-and-back :fill)
+                     (gl:bind-vertex-array vao)
+                     (gl:point-size 5)
+                     (gl:disable :lighting)
+                     (gl:color 0 1 0 0.4)
+                     #++(gl:draw-elements :points (gl:make-null-gl-array :unsigned-short) :count count)
+                     (if (wireframe w)
+                         (progn
+                           (gl:disable :lighting)
+                           (gl:color 0 0 0 1)
+                           (gl:polygon-mode :front-and-back :fill)
 
-                       (gl:draw-elements :triangles (gl:make-null-gl-array :unsigned-short) :count count)
-                       (gl:line-width 1.5)
-                       (gl:color 0 1 0 1)
-                       (gl:polygon-mode :front-and-back :line)
-                       (gl:draw-elements :triangles (gl:make-null-gl-array :unsigned-short) :count count))
-                     (progn
-                       (gl:color 1 0 0 1)
-                       (gl:enable :lighting)
-                       (gl:polygon-mode :front-and-back :fill)
-                       (gl:draw-elements :triangles (gl:make-null-gl-array :unsigned-short) :count count)))))))
+                           (gl:draw-elements :triangles (gl:make-null-gl-array :unsigned-short) :count count)
+                           (gl:line-width 1.5)
+                           (gl:color 0 1 0 1)
+                           (gl:polygon-mode :front-and-back :line)
+                           (gl:draw-elements :triangles (gl:make-null-gl-array :unsigned-short) :count count))
+                         (progn
+                           (gl:color 1 0 0 1)
+                           (gl:enable :lighting)
+                           (gl:polygon-mode :front-and-back :fill)
+                           (gl:draw-elements :triangles (gl:make-null-gl-array :unsigned-short) :count count)))))))
       (setf *tris* tris))))
 
 
@@ -150,7 +153,9 @@
 (defun ttf-tess ()
   (let ((w (make-instance 'ttf-tess-window
                           :font-path
-                          "/usr/share/fonts/truetype/msttcorefonts/Georgia.ttf")))
+                          #++"/usr/share/fonts/truetype/msttcorefonts/Georgia.ttf"
+                          (merge-pathnames "georgia.ttf"
+                                           (user-homedir-pathname)))))
     (unwind-protect
 	 (basecode-run w)
       (glut:destroy-window (glut:id w)))))
