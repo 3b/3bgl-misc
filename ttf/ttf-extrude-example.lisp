@@ -40,7 +40,8 @@
                    (mesh-count w)))
            ;; select C glyphs at random (not very efficiently, but
            ;; we only need to do it once...)
-           (glyphs (loop for i in (shuffle (iota (glyph-count loader)))
+           (glyphs (loop for i in  (iota (glyph-count loader))
+                                   #++(shuffle (iota (glyph-count loader)))
                       for g = (index-glyph i loader)
                       when (plusp (code-point g))
                       collect g
@@ -98,45 +99,47 @@
         (gl:blend-func :src-alpha :one-minus-src-alpha)
         (gl:disable :cull-face)
         (gl:light :light0 :position (list 0.2 0.7 0.2 1.0))
-        (gl:with-pushed-matrix* (:modelview)
-          (rx)
-          (loop for vao in (vaos w)
-                for i from 0
-                for count across (counts w)
-                for tx = 1
-                for d = 25
-                for dh = 80
-                for x = (mod i d)
-                for y = (mod (floor i d) dh)
-                for z = (floor i (* d dh))
-                do
-                   (gl:with-pushed-matrix* (:modelview)
-                     (incf tris count)
-                     (gl:translate (* (- x (* d 0.5)) tx)
-                                   (* y tx)
-                                   (* (+ z (* d -0.5)) tx))
+        (dotimes (x 10)
+          (gl:translate 0 0 (/ x 2.2))
+          (gl:with-pushed-matrix* (:modelview)
+                      (rx)
+                      (loop for vao in (vaos w)
+                            for i from 0
+                            for count across (counts w)
+                            for tx = 1
+                            for d = 25
+                            for dh = 80
+                            for x = (mod i d)
+                            for y = (mod (floor i d) dh)
+                            for z = (floor i (* d dh))
+                            do
+                               (gl:with-pushed-matrix* (:modelview)
+                                 (incf tris count)
+                                 (gl:translate (* (- x (* d 0.5)) tx)
+                                               (* y tx)
+                                               (* (+ z (* d -0.5)) tx))
 
-                     (gl:bind-vertex-array vao)
-                     (gl:point-size 5)
-                     (gl:disable :lighting)
-                     (gl:color 0 1 0 0.4)
-                     #++(gl:draw-elements :points (gl:make-null-gl-array :unsigned-short) :count count)
-                     (if (wireframe w)
-                         (progn
-                           (gl:disable :lighting)
-                           (gl:color 0 0 0 1)
-                           (gl:polygon-mode :front-and-back :fill)
+                                 (gl:bind-vertex-array vao)
+                                 (gl:point-size 5)
+                                 (gl:disable :lighting)
+                                 (gl:color 0 1 0 0.4)
+                                 #++(gl:draw-elements :points (gl:make-null-gl-array :unsigned-short) :count count)
+                                 (if (wireframe w)
+                                     (progn
+                                       (gl:disable :lighting)
+                                       (gl:color 0 0 0 1)
+                                       (gl:polygon-mode :front-and-back :fill)
 
-                           (gl:draw-elements :triangles (gl:make-null-gl-array :unsigned-short) :count count)
-                           (gl:line-width 1.5)
-                           (gl:color 0 1 0 1)
-                           (gl:polygon-mode :front-and-back :line)
-                           (gl:draw-elements :triangles (gl:make-null-gl-array :unsigned-short) :count count))
-                         (progn
-                           (gl:color 1 0 0 1)
-                           (gl:enable :lighting)
-                           (gl:polygon-mode :front-and-back :fill)
-                           (gl:draw-elements :triangles (gl:make-null-gl-array :unsigned-short) :count count)))))))
+                                       (gl:draw-elements :triangles (gl:make-null-gl-array :unsigned-short) :count count)
+                                       (gl:line-width 1.5)
+                                       (gl:color 0 1 0 1)
+                                       (gl:polygon-mode :front-and-back :line)
+                                       (gl:draw-elements :triangles (gl:make-null-gl-array :unsigned-short) :count count))
+                                     (progn
+                                       (gl:color 1 0 0 1)
+                                       (gl:enable :lighting)
+                                       (gl:polygon-mode :front-and-back :fill)
+                                       (gl:draw-elements :triangles (gl:make-null-gl-array :unsigned-short) :count count))))))))
       (setf *tris* tris))))
 
 

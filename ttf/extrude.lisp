@@ -165,6 +165,7 @@ and indicated when current segment is the last one"
                                  ,contour
                                  (* ,smooth-tolerance-deg ,(/ pi 180))))
 
+#++
 (defun extrude-glyph (glyph loader &key (scale (/ (units/em loader))))
   (let ((tess (make-instance 'extrude-tess :extrude-depth 0.3)))
     (glu:tess-property tess :winding-rule :nonzero)
@@ -211,7 +212,7 @@ and indicated when current segment is the last one"
                       :normals t
                       :max-depth nil
                       :angle-tolerance-rad (* 30 (/ pi 180))
-                      :max-error nil)
+                      :max-error 0.001)
                    (loop for i from 0 below  (length points)
                       for p = (aref points i)
                       for n = (if invert-normal
@@ -233,4 +234,167 @@ and indicated when current segment is the last one"
     (glu:tess-delete tess)
     tess))
 
+(defun subdivide (glyph &key (angle 10) scale)
+  (assert scale)
+  (let ((radians (float (* angle (/ pi 180)) 1.0))
+        (contours nil))
+    (labels ((v (c n)
+               (let ((x (float (* (x c) scale) 1.0))
+                     (y (float (* (y c) scale) 1.0))
+                     (nx (first n))
+                     (ny (second n)))
+                 (push (list (sb-cga:vec x y 0.0)
+                             (sb-cga:vec nx ny 0.0))
+                       (car contours))))
+             (vv (c n)
+               (let ((x (float (* (aref c 0) scale) 1.0))
+                     (y (float (* (aref c 1) scale) 1.0))
+                     (nx (aref n 0))
+                     (ny (aref n 1)))
+                 (push (list (sb-cga:vec x y 0.0)
+                             (sb-cga:vec nx ny 0.0))
+                       (car contours))))
+             (cpvec (cp)
+               (sb-cga:vec (float (x cp) 1.0) (float (y cp) 1.0) 0.0))
+             (subdivide (s c e smooth)
+               (declare (ignorable smooth))
+               (let ((invert-normal (plusp (sb-cga:dot-product
+                                            (sb-cga:vec 0.0 0.0 1.0)
+                                            (sb-cga:cross-product
+                                             (sb-cga:vec- (cpvec s) (cpvec c))
+                                             (sb-cga:vec- (cpvec e) (cpvec c)))))))
+                 (multiple-value-bind (points normals)
+                     (3bgl-splines:subdivide-quadratic
+                      (cpvec s) (cpvec c) (cpvec e)
+                      :normals t
+                      :max-depth nil
+                      :angle-tolerance-rad radians
+                      :max-error 0.001)
+                   (loop for i from 0 below  (length points)
+                         for p = (aref points i)
+                         for n = (if invert-normal
+                                     (sb-cga:vec* (aref normals i) -1.0)
+                                     (aref normals i))
+                         do (vv p n))))))
+      (do-contours (contour glyph)
+        (push nil contours)
+        (do-contour-segments-x (s c e smooth last) contour
+          (declare (ignorable last))
+          (if c
+              (subdivide s c e smooth)
+              (unless nil (v e (list 0.0 0.0)))))
+        (setf (car contours) (coerce (nreverse (car contours)) 'vector)))
+      (nreverse contours))))
 
+(defun simplify (contours &key (curve-angle 30)
+                            (straight-angle 1)
+                            debug)
+  (let ((curve-radians (float (* curve-angle (/ pi 180)) 1.0))
+        (straight-radians (float (* straight-angle (/ pi 180)) 1.0))
+        (tolerance)
+        (orig contours))
+    ;; first get rid of any straight lines and duplicated vertices
+    ;; (keep vertices with same position and different normals though)
+    (when debug (format t "~{~a~%~}" contours))
+    (labels ((skip (contour start end)
+               (loop ;with z = (car (aref contour (mod (+ (1- end) start) end)))
+                     ;with a = (car (aref contour start))
+                     ;with an = (cadr (aref contour start))
+                     with total-angle = 0
+                     with total-abs-angle = 0
+                     for i from start
+                     for a = (car (aref contour (mod (+ (1- end) i) end)))
+                     then (if (or (zerop (sb-cga:vec-length (sb-cga:vec- a b)))
+                                  (zerop (sb-cga:vec-length (sb-cga:vec- b c)))
+                                  )
+                              a
+                              b)
+                     for an = (cadr (aref contour (mod (+ (1- end) i) end)))
+                     for b = (car (aref contour (mod i end)))
+                     for c = (car (aref contour (mod (1+ i) end)))
+                     for bn = (cadr (aref contour (mod i end)))
+                     for cn = (cadr (aref contour (mod (1+ i) end)))
+                     for ab = (sb-cga:vec- a b)
+                     for cb = (sb-cga:vec- b c)
+                     for angle = (unless
+                                     (or (zerop (sb-cga:vec-length ab))
+                                         (zerop (sb-cga:vec-length cb)))
+                                     (acos
+                                      (max -1.0
+                                           (min 1.0
+                                                (sb-cga:dot-product
+                                                 (sb-cga:normalize ab)
+                                                 (sb-cga:normalize cb))))))
+                     when debug
+                       do (format t "skip @~a: ~a~%   ~a~%   ~a~% ~a / ~a ~a~%"
+                                  i a b c (when angle (/ angle (/ pi 180)))
+                                  (/ total-angle (/ pi 180))
+                                  (/ total-abs-angle (/ pi 180)))
+                     if angle
+                       do (incf total-angle angle)
+                          (incf total-abs-angle (abs angle))
+                     else
+                       do (when (and (zerop (sb-cga:vec-length ab))
+                                     nil (not (sb-cga:vec~ an bn)))
+                            (when debug (format t " abn ~s ~s~%" an bn))
+                            (return-from skip i))
+                          (when (and (zerop (sb-cga:vec-length cb))
+                                     nil (not (sb-cga:vec~ cn bn)))
+                            (when debug (format t " bcn ~s ~s~%" bn cn))
+                            (return-from skip i))
+                     while (and (< (or angle 0.0) tolerance)
+                                (< total-angle tolerance)
+                                (< total-abs-angle tolerance))
+                     finally (return (when (<= i end)
+                                       i))))
+             (sc (contour)
+               (coerce (loop with l = (length contour)
+                             for i = 0 then (max (1+ i) j)
+                             for j = (when (and i (< i (length contour)))
+                                       (skip contour i l))
+                             while j
+                             collect (aref contour i))
+                       'vector)))
+      (setf tolerance straight-radians)
+      (setf contours (map 'list #'sc contours))
+      (when debug (format t "~& -1>~%~a~%" contours))
+      (setf tolerance curve-radians)
+      (setf contours (map 'list #'sc contours))
+      (when debug (format t "~& -2>~%~a~%" contours))
+      (when debug (break "ccc " contours orig))
+      contours)))
+
+(defun extrude-glyph (glyph loader &key (scale (/ (units/em loader))))
+  (let ((tess (make-instance 'extrude-tess :extrude-depth 0.3)))
+    (glu:tess-property tess :winding-rule :nonzero)
+    (assert scale)
+    (labels ((vv (c n)
+               (when (string=
+                      "O"
+                      (zpb-ttf:postscript-name glyph))
+                 (format t "vv ~s ~s~%" c n))
+               (let ((x (float (* (aref c 0) 1) 1.0))
+                     (y (float (* (aref c 1) 1) 1.0))
+                     (nx (if n (aref n 0) 0.0))
+                     (ny (if n (aref n 1) 0.0)))
+                 (glu:tess-vertex tess
+                                  (list x y 0.0 1.0 0.0 0.0)
+                                  (list x y 0.0 nx ny 0.0)))))
+      (format t "extrude ~s~%" (zpb-ttf:postscript-name glyph))
+      (glu:with-tess-polygon (tess nil)
+        (let ((contours #++(subdivide glyph :angle 5 :scale scale)
+                        (simplify (subdivide glyph :angle 5 :scale scale)
+                                  :curve-angle 30
+                                  :debug
+                                  nil #++
+                                  (string=
+                                      "Germandbls"
+                                      (zpb-ttf:postscript-name glyph)))))
+          (setf (edge-flag tess) nil)
+          (loop for contour in contours
+                do (glu:with-tess-contour tess
+                     (loop for p across contour
+                           do (vv (first p) (second p))))))))
+    ;; fixme: just return the geometry, not the deleted tesselator
+    (glu:tess-delete tess)
+    tess))
