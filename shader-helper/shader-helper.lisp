@@ -16,9 +16,16 @@
   (loop for f in functions
         do (pushnew p (gethash f *live-programs*))))
 
+(defmethod shader-recompiled ((w basecode-shader-helper) shader)
+  ;; hook for updating things after a shader is recompiled
+  ;; (for example if size of ssbo changed or something)
+  )
+
 (defmethod run-main-loop :around ((w basecode-shader-helper))
   (let ((*live-programs* (make-hash-table))
-        (3bgl-shaders::*shader-program-hook* 'shader-program-hook))
+        (3bgl-shaders::*shader-program-hook* 'shader-program-hook)
+        (3bgl-shaders::*default-recompilation-callback*
+          (list (lambda (s) (funcall 'shader-recompiled w s)))))
     ;; todo: add mutex for this
     (push w *running-loops*)
     (unwind-protect
