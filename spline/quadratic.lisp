@@ -10,12 +10,13 @@ and START, CONTROL, END are sb-cga:vec"
                    (sb-cga:vec-lerp control end u)
                    u))
 
-(defun evaluate-quadratic-normal (start control end u)
+(defun evaluate-quadratic-normal (start control end u &key binormal)
   "evaluate the quadratic spline defined by endpoints START and END
 with control point CONTROL at the point U, where U = 0.0 is START and
 1.0 = END, and START, CONTROL, END are sb-cga:vec, and return the
-direction perpendicular to the curve at that point, in the same plane as
-the curve. (results are undefined if start, control, and end are collinear)"
+direction perpendicular to the curve at that point, in the same plane
+as the curve. (results are undefined if start, control, and end are
+collinear and BINORMAL isn't specified)"
   ;; lerp between the end points and controls to get endpoints of tangent
   ;; line
   ;; then cross product of that and line perpendicular to the plane of
@@ -24,8 +25,9 @@ the curve. (results are undefined if start, control, and end are collinear)"
   (sb-cga:normalize
    (sb-cga:cross-product (sb-cga:vec- (sb-cga:vec-lerp start control u)
                                       (sb-cga:vec-lerp control end u))
-                         (sb-cga:cross-product (sb-cga:vec- start control)
-                                               (sb-cga:vec- end control)))))
+                         (or binormal
+                             (sb-cga:cross-product (sb-cga:vec- start control)
+                                                   (sb-cga:vec- end control))))))
 
 (defun evaluate-quadratic-tangent (start control end u)
   "evaluate the quadratic spline defined by endpoints START and END
@@ -42,9 +44,10 @@ the curve."
 
 (defun subdivide-quadratic (start control end
                             &key (angle-tolerance-rad (deg->rad 10))
-                            (max-error 0.001)
-                            max-depth
-                            normals)
+                              (max-error 0.001)
+                              max-depth
+                              normals
+                              binormal)
   "Subdivide the quadratic curve defined by the SB-CGA:VECs START,
 CONTROL, and END, until either a given control point is within
 MAX-ERROR of the curve, the angle formed by the control and end points
@@ -55,7 +58,11 @@ will not be subdivided. Returns a vector of points approximating the
 curve.
 If NORMALS is true, a vector of normals corresponding to each point
 will be returned as the second value, and a vector of tangents as
-third value."
+third value.
+If BINORMAL is specified, it is used in the calculation of normals and
+tangents allowing it to handle the case where all points are on a single
+line.
+"
   ;; todo: version that optimizes for a fixed segment budget
   ;; implementing this from memory, probably buggy...
   (when (not (or angle-tolerance-rad max-error max-depth))
@@ -63,9 +70,12 @@ third value."
       (if normals
           (values
            (vector start control end)
-           (vector (evaluate-quadratic-normal start control end 0.0)
-                   (evaluate-quadratic-normal start control end 0.5)
-                   (evaluate-quadratic-normal start control end 1.0))
+           (vector (evaluate-quadratic-normal start control end 0.0
+                                              :binormal binormal)
+                   (evaluate-quadratic-normal start control end 0.5
+                                              :binormal binormal)
+                   (evaluate-quadratic-normal start control end 1.0
+                                              :binormal binormal))
            (vector (evaluate-quadratic-tangent start control end 0.0)
                    (evaluate-quadratic-tangent start control end 0.5)
                    (evaluate-quadratic-tangent start control end 1.0)))
@@ -108,6 +118,7 @@ third value."
                (when tangents
                  (vector-push-extend pt tangents))
                (when normals
+                 (assert (not (sb-ext:float-nan-p (aref pn 0))))
                  (vector-push-extend pn normals)))
              (subd (s c e depth sn en st et)
                (let* ((a (sb-cga:vec-lerp s c 0.5))
@@ -119,8 +130,9 @@ third value."
                             (sb-cga:normalize
                              (sb-cga:cross-product
                               ct
-                              (sb-cga:cross-product (sb-cga:vec- s c)
-                                                    (sb-cga:vec- e c)))))))
+                              (or binormal
+                                  (sb-cga:cross-product (sb-cga:vec- s c)
+                                                        (sb-cga:vec- e c))))))))
                  (if (check-tolerances (sb-cga:normalize (sb-cga:vec- c s))
                                        c
                                        (sb-cga:normalize (sb-cga:vec- e c))
@@ -135,11 +147,13 @@ third value."
       (let ((st (when tangents
                   (evaluate-quadratic-tangent start control end 0.0)))
             (sn (when normals
-                  (evaluate-quadratic-normal start control end 0.0)))
+                  (evaluate-quadratic-normal start control end 0.0
+                                              :binormal binormal)))
             (et (when tangents
                   (evaluate-quadratic-tangent start control end 1.0)))
             (en (when normals
-                  (evaluate-quadratic-normal start control end 1.0))))
+                  (evaluate-quadratic-normal start control end 1.0
+                                              :binormal binormal))))
         (add-point start sn st)
         (subd start control end 0 sn en st et))
       (values results normals tangents))))

@@ -19,37 +19,45 @@
   )
 
 (defmethod glu:vertex-data-callback ((tess extrude-tess) vert data)
-  (labels ((gla (a)
-             (list
-              (apply 'sb-cga:vec
-                     (loop for i below 3
-                        collect (float (elt a i) 1.0)))
-              (apply 'sb-cga:vec
-                     (loop for i from 3 below 6
-                        collect (float (elt a i) 1.0)))))
+  (labels ((cn (n)
+             (assert (not (sb-ext:float-nan-p (aref n 0))))
+             (assert (not (sb-ext:float-nan-p (aref n 1))))
+             (assert (not (sb-ext:float-nan-p (aref n 2)))))
+           (gla (a)
+                (list
+                 (apply 'sb-cga:vec
+                        (loop for i below 3
+                              collect (float (elt a i) 1.0)))
+                 (apply 'sb-cga:vec
+                        (loop for i from 3 below 6
+                              collect (float (elt a i) 1.0)))))
            (tri (p1 p2 p3 n)
+             (cn n)
              (vector-push-extend (list p1 n) (triangles tess))
-             (vector-push-extend (list p3 n) (triangles tess))
-             (vector-push-extend (list p2 n) (triangles tess)))
+             (vector-push-extend (list p2 n) (triangles tess))
+             (vector-push-extend (list p3 n) (triangles tess)))
            (tri3 (p1 n1 p2 n2 p3 n3)
+             (cn n1) (cn n2) (cn n3)
              (vector-push-extend (list p1 n1) (triangles tess))
-             (vector-push-extend (list p3 n3) (triangles tess))
-             (vector-push-extend (list p2 n2) (triangles tess)))
+             (vector-push-extend (list p2 n2) (triangles tess))
+             (vector-push-extend (list p3 n3) (triangles tess)))
            (edge (p1 n1 p2 n2 p3 p4)
              ;; calculate face normals if we don't have a normal already
-             (let* ((need-n1 (< (abs (sb-cga:vec-length n1)) 0.001))
-                    (need-n2 (< (abs (sb-cga:vec-length n2)) 0.001))
-                    (fn (when (or need-n1 need-n2)
-                          (sb-cga:normalize
-                           (sb-cga:cross-product (sb-cga:vec- p2 p1)
-                                                 (sb-cga:vec 0.0 0.0 1.0))))))
-               ;; should this normalize existing normals or rely on
-               ;; caller to provide them normalized?
-               (when need-n1 (setf n1 fn))
-               (when need-n2 (setf n2 fn)))
-             ;; add face tris
-             (tri3 p2 n2 p1 n1 p3 n1)
-             (tri3 p2 n2 p3 n1 p4 n2)))
+             (unless (zerop (sb-cga:vec-length
+                             (sb-cga:vec- p2 p1))) ;; skip degenerate tris
+               (let* ((need-n1 (< (abs (sb-cga:vec-length n1)) 0.001))
+                      (need-n2 (< (abs (sb-cga:vec-length n2)) 0.001))
+                      (fn (when (or need-n1 need-n2)
+                            (sb-cga:normalize
+                             (sb-cga:cross-product (sb-cga:vec- p2 p1)
+                                                   (sb-cga:vec 0.0 0.0 1.0))))))
+                 ;; should this normalize existing normals or rely on
+                 ;; caller to provide them normalized?
+                 (when need-n1 (setf n1 fn))
+                 (when need-n2 (setf n2 fn)))
+               ;; add face tris
+               (tri3 p2 n2 p1 n1 p3 n1)
+               (tri3 p2 n2 p3 n1 p4 n2))))
     (let ((vi (gla vert))
           (offset (sb-cga:vec 0.0 0.0 (float (extrude-depth tess) 1.0))))
       (push (cons (edge-flag tess) vi) (current-tri tess))
@@ -86,13 +94,16 @@
 (defparameter *glyphs* 0)
 
 (defmethod fill-buffers ((tess extrude-tess) vertex-vbo index-vbo vao)
+  (fill-buffers (triangles tess) vertex-vbo index-vbo vao))
+
+(defmethod fill-buffers ((triangles vector) vertex-vbo index-vbo vao)
   (gl:bind-vertex-array vao)
 
   (gl:bind-buffer :array-buffer vertex-vbo)
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; ;;
   ;; todo: reuse shared verts
-  (gl:with-gl-array (arr :float :count (* 6 (length (triangles tess))))
-    (loop for (v n) across (triangles tess)
+  (gl:with-gl-array (arr :float :count (* 6 (length triangles)))
+    (loop for (v n) across triangles
        for i from 0 by 6
        do #++(setf (gl:glaref arr (+ i 0)) (aref v 0)
                 (gl:glaref arr (+ i 1)) (aref v 1)
@@ -112,8 +123,8 @@
     nil)
 
   (gl:bind-buffer :element-array-buffer index-vbo)
-  (gl:with-gl-array (arr :unsigned-short :count (length (triangles tess)))
-    (loop for foo across (triangles tess)
+  (gl:with-gl-array (arr :unsigned-short :count (length triangles))
+    (loop for foo across triangles
        for i from 0
        do (setf #++(gl:glaref arr i)
                 (cffi:mem-aref (gl::gl-array-pointer arr) :unsigned-short i)
@@ -127,7 +138,8 @@
   (gl:vertex-attrib-pointer 2 3 :float nil 24 (cffi:make-pointer 12))
 
   (gl:bind-vertex-array 0)
-  (length (triangles tess)))
+  (length triangles))
+
 
 (defun control-points-smooth (p c n tolerance)
   (let*  ((pc (complex (x c) (y c)))
@@ -269,7 +281,8 @@ and indicated when current segment is the last one"
                       :normals t
                       :max-depth nil
                       :angle-tolerance-rad radians
-                      :max-error 0.001)
+                      :max-error nil
+                      :binormal (sb-cga:vec 0.0 0.0 1.0))
                    (loop for i from 0 below  (length points)
                          for p = (aref points i)
                          for n = (if invert-normal
@@ -348,13 +361,17 @@ and indicated when current segment is the last one"
                      finally (return (when (<= i end)
                                        i))))
              (sc (contour)
+               (when debug (format t "== contour ~s~%" contour))
                (coerce (loop with l = (length contour)
                              for i = 0 then (max (1+ i) j)
                              for j = (when (and i (< i (length contour)))
-                                       (skip contour i l))
+                                       (if (<= l 3)
+                                           i
+                                           (skip contour i l)))
                              while j
                              collect (aref contour i))
-                       'vector)))
+                       'vector)
+               ))
       (setf tolerance straight-radians)
       (setf contours (map 'list #'sc contours))
       (when debug (format t "~& -1>~%~a~%" contours))
@@ -364,7 +381,8 @@ and indicated when current segment is the last one"
       (when debug (break "ccc " contours orig))
       contours)))
 
-(defun extrude-glyph (glyph loader &key (scale (/ (units/em loader))))
+(defun extrude-glyph (glyph loader &key (scale (/ (units/em loader)))
+                                     (angle 30))
   (let ((tess (make-instance 'extrude-tess :extrude-depth 0.3)))
     (glu:tess-property tess :winding-rule :nonzero)
     (assert scale)
@@ -382,13 +400,14 @@ and indicated when current segment is the last one"
                                   (list x y 0.0 nx ny 0.0)))))
       (format t "extrude ~s~%" (zpb-ttf:postscript-name glyph))
       (glu:with-tess-polygon (tess nil)
-        (let ((contours #++(subdivide glyph :angle 5 :scale scale)
-                        (simplify (subdivide glyph :angle 5 :scale scale)
-                                  :curve-angle 30
+        (let ((contours #++(subdivide glyph :angle 30 :scale scale)
+                        (simplify (subdivide glyph :angle (/ angle 6)
+                                                   :scale scale)
+                                  :curve-angle angle
                                   :debug
-                                  nil #++
+                                 nil #++
                                   (string=
-                                      "Germandbls"
+                                      "uni03C0"
                                       (zpb-ttf:postscript-name glyph)))))
           (setf (edge-flag tess) nil)
           (loop for contour in contours
@@ -397,4 +416,4 @@ and indicated when current segment is the last one"
                            do (vv (first p) (second p))))))))
     ;; fixme: just return the geometry, not the deleted tesselator
     (glu:tess-delete tess)
-    tess))
+    (triangles tess)))

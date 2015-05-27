@@ -19,7 +19,7 @@
    (angle :accessor angle :initform 0.0)
    (wireframe :accessor wireframe :initform nil))
   (:default-initargs :width 640 :height 480 :title "ttf-extrude"
-                     :mesh-count 1000
+                     :mesh-count 2000
                      :look-at-eye '(-5 10 -15)))
 
 (defmethod free-buffers ((w ttf-tess-window))
@@ -36,6 +36,7 @@
     ;; we pick some random characters from the font, up to the number
     ;; specified in the class instance, or the number available
     ;; whichever is lower
+    (format t "total glyphs = ~s~%" (glyph-count loader))
     (let* ((c (min (glyph-count loader)
                    (mesh-count w)))
            ;; select C glyphs at random (not very efficiently, but
@@ -88,7 +89,8 @@
   (gl:clear-color 0.0 0.0 0.2 1.0)
 
   (gl:with-pushed-matrix* (:modelview)
-    (let ((tris 0))
+    (let ((tris 0)
+          (dz 1))
       (flet ((rx ()
                (gl:with-pushed-matrix* (:modelview)
                  (gl:rotate (* 2 (angle w)) 0 0 1)
@@ -97,18 +99,19 @@
                    :depth-test :lighting :light0 :multisample)
         (gl:point-size 1)
         (gl:blend-func :src-alpha :one-minus-src-alpha)
-        (gl:disable :cull-face)
+        (gl:enable :cull-face)
         (gl:light :light0 :position (list 0.2 0.7 0.2 1.0))
-        (dotimes (x 10)
-          (gl:translate 0 0 (/ x 2.2))
+        (dotimes (x dz)
+          (gl:translate 0 0 (/ (1+ x) 2.2))
           (gl:with-pushed-matrix* (:modelview)
                       (rx)
                       (loop for vao in (vaos w)
                             for i from 0
                             for count across (counts w)
-                            for tx = 1
-                            for d = 25
-                            for dh = 80
+                            for tx = 0.55
+                            for ty = 1
+                            for d = 80
+                            for dh = 25
                             for x = (mod i d)
                             for y = (mod (floor i d) dh)
                             for z = (floor i (* d dh))
@@ -116,8 +119,8 @@
                                (gl:with-pushed-matrix* (:modelview)
                                  (incf tris count)
                                  (gl:translate (* (- x (* d 0.5)) tx)
-                                               (* y tx)
-                                               (* (+ z (* d -0.5)) tx))
+                                               (* y ty)
+                                               (* (+ z (* dz -0.5)) 1))
 
                                  (gl:bind-vertex-array vao)
                                  (gl:point-size 5)
@@ -147,6 +150,7 @@
   (declare (ignore x y) (optimize debug))
   (with-simple-restart (continue "Continue")
     (case key
+      (#\m (print (gl:get* :front-face)))
       (#\1 (setf (wireframe w) (not (wireframe w))))
       (#\space (time (load-glyphs w))))))
 
@@ -157,8 +161,8 @@
   (let ((w (make-instance 'ttf-tess-window
                           :font-path
                           (or (probe-file "/usr/share/fonts/truetype/msttcorefonts/Georgia.ttf")
-                              (probe-file (merge-pathnames "georgia.ttf"
-                                                           (user-homedir-pathname)))))))
+                              (probe-file  "c:/windows/fonts/consola.ttf")
+                              (probe-file  "c:/windows/fonts/georgia.ttf")))))
     (unwind-protect
 	 (basecode-run w)
       (glut:destroy-window (glut:id w)))))
