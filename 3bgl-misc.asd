@@ -63,7 +63,8 @@
                  #++(:file "skybox-demo")))
    (:module "shader-helper"
     :serial t
-    :components ((:file "shader-helper")))
+    :components ((:file "shader-helper")
+                 (:file "program-interface-query")))
    #+unix
    (:module "xembed"
     :serial t
