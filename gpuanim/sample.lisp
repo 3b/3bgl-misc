@@ -42,40 +42,48 @@
     (gl:point-size 10)
     (3bgl-shaders::with-program (p :error-p t)
       (3bgl-gpuanim::bind-anim-buffers)
-      (basecode-shader-helper::mvp
-       w p :m (sb-cga:matrix*
-               (sb-cga:translate* -1.0 1.0 0.0)
-               (sb-cga:rotate* (float (/ pi -2)
-                                      1.0)
-                               0.0 0.0)
-               (sb-cga:scale* 0.1 0.1 0.1)))
       (setf (3bgl-shaders::uniform p
                                    '3bgl-gpuanim-shaders::draw-skel-skel-index)
             0)
-      (setf (3bgl-shaders::uniform p
+      (loop
+        with n = (num-instances w)
+        with sn = (ceiling (sqrt n))
+        with space = 8.0
+        for i below n
+        for x = (float (mod i sn))
+        for y = (float (- (floor i sn)  (/ (1- sn) 2.0)))
+        do
+           (setf (3bgl-shaders::uniform p
                                    '3bgl-gpuanim-shaders::draw-skel-anim-index)
-            0)
-      (when (plusp (num-instances w))
-       (restart-case
-           (progn
-             (gl:with-primitive :points
-               (loop for i below 64
-                     do (gl:vertex-attrib 4 1 0 0 0)
-                        (%gl:vertex-attrib-i4i 5 i 0 0 0)
-                        (gl:vertex-attrib 0 0 0 0 1)))
-             (gl:with-primitive :lines
-               (loop for p in '(-1 0 1 2 3 2 5 6 7 8 7 10 11 7 2 14 15
-                                16 17 16 19 20 16 1 23 24 25 24 1 28 29 30 29)
-                     for i below 64 ;(1+ (mod (get-universal-time) 63))
-                     when (plusp p)
-                       do (gl:vertex-attrib 4 1 0 0 0)
-                          (%gl:vertex-attrib-i4i 5 p 0 0 0)
-                          (gl:vertex-attrib 0 0 0 0 1)
-                          (gl:vertex-attrib 4 1 0 0 0)
-                          (%gl:vertex-attrib-i4i 5 i 0 0 0)
-                          (gl:vertex-attrib 0 0 0 0 1))))
-         (clear-tex () :report "clear mesh"
-           (setf (num-instances w) 0)))))))
+            i)
+           (basecode-shader-helper::mvp
+            w p :m (sb-cga:matrix*
+                    (sb-cga:rotate* (float (/ pi -2)
+                                           1.0)
+                                    0.0 0.0)
+                    (sb-cga:translate* (* space x) (* space y) 0.0)
+                    (sb-cga:scale* 0.1 0.1 0.1)))
+           (restart-case
+               (progn
+                 (gl:with-primitive :points
+                   (loop for i below 33
+                         do (gl:vertex-attrib 4 1 0 0 0)
+                            (%gl:vertex-attrib-i4i 5 i 0 0 0)
+                            (gl:vertex-attrib 0 0 0 0 1)))
+                 (gl:with-primitive :lines
+                   (loop for p in '(-1 0 1 2 3 2 5 6 7 8 7 10 11 7 2 14 15
+                                    16 17 16 19 20 16 1 23 24 25 24 1 28
+                                    29 30 29)
+                         for i below 64 ;(1+ (mod (get-universal-time) 63))
+                         when (plusp p)
+                           do (gl:vertex-attrib 4 1 0 0 0)
+                              (%gl:vertex-attrib-i4i 5 p 0 0 0)
+                              (gl:vertex-attrib 0 0 0 0 1)
+                              (gl:vertex-attrib 4 1 0 0 0)
+                              (%gl:vertex-attrib-i4i 5 i 0 0 0)
+                              (gl:vertex-attrib 0 0 0 0 1))))
+             (clear-tex () :report "clear mesh"
+               (setf (num-instances w) 0)))))))
 
 
 (defmethod basecode-shader-helper::shader-recompiled ((w gpuanim-test) sp)
@@ -203,7 +211,7 @@
     (let ((anim-data
             (loop
               with i = 0
-              for file in (nthcdr 7 *animfiles*)
+              for file in *animfiles*
               for scene = (load-md5 file)
               for anims = (ai:animations scene)
               append (loop
@@ -220,10 +228,11 @@
       (3bgl-gpuanim:build-anim-data (loop for i in anim-data
                                           append (getf i :anim)))
       ;; create anim instances
-      (3bgl-gpuanim:update-instance-data 0))
+      (loop for i below (length *animfiles*)
+            do (3bgl-gpuanim:update-instance-data i)))
 
     ;; update (num-instances w)
-    (setf (num-instances w) 1)))
+    (setf (num-instances w) (length *animfiles*))))
 
 
 (defmethod key-down ((w gpuanim-test) k)
@@ -231,6 +240,9 @@
     (case k
       (:l
        (load-files w))
+      (:f9
+       (setf (width w) 1920)
+       )
       ((:f12 :l1)
        (basecode::reset-freelook-camera w)))))
 
@@ -238,3 +250,4 @@
 ;(setf 3bgl-shaders::*verbose* nil)
 
 ; (basecode-run (make-instance 'gpuanim-test     :width 1920 :height 1080))
+

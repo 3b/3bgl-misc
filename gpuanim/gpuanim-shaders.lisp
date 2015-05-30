@@ -267,7 +267,7 @@
                     #++(anim-time (- time-ms (@ anim-instance start-time)))
                     (last (aref (@ instance last-keyframe) bone)))
     (let ((key-data (aref anim-metadata
-                         (+ bone (* instance-id 43))
+                         (+ bone (* instance-id 33))
                          #+todo
                          (aref (@ anim keys) bone)))
          (matrix (mat4 1)) ;; identity matrix
