@@ -26,6 +26,8 @@
 (uniform diffuse-tex :sampler-2d :stage :fragment)
 (uniform specular-tex :sampler-2d :stage :fragment)
 (uniform normal-tex :sampler-2d :stage :fragment)
+;; debugging
+(uniform skip-inv-bind-matrix :bool :stage :compute :default true)
 
 ;; varyings
 (interface varyings (:out (:vertex outs)
@@ -365,9 +367,10 @@
                   (* (aref (@ anim-instance matrices) parent)
                      (aref (@ anim-instance matrices) bone)))))
         (barrier)
-        #++(setf (aref (@ anim-instance matrices) bone)
-              (* (aref (@ anim-instance matrices) bone)
-                 (aref (@ skeleton inverse-bind-matrix) bone)))))))
+        (unless skip-inv-bind-matrix
+          (setf (aref (@ anim-instance matrices) bone)
+                (* (aref (@ anim-instance matrices) bone)
+                   (aref (@ skeleton inverse-bind-matrix) bone))))))))
 
 
 (uniform draw-skel-anim-index :int) ;; index in -anim-instances
