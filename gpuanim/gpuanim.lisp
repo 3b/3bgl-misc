@@ -29,6 +29,7 @@
 ;; debugging, specify anim time
 (defparameter *hack-time* nil)
 
+
 ;; input = sequence of anim data for 1 bone
 ;;  anim data for 1 bone =
 ;;     sequence of timestamp + quat
@@ -56,7 +57,7 @@
 ;; probably also send input as soa (seq of tx + seq of keys) instead
 ;;   of aos, so we can just hash them directly to find dupe?
 
-(defun build-anim-data (anim-data)
+(defun build-anim-data (anim-data &key (state *gpu-anim-state*))
   ;; anim-data is sequence of sets of keyframe data for a single bone
   ;;   each entry contains the keyframes for a single bone of a single anim
   ;;     so entire buffer is #bones * #anims entries
@@ -192,6 +193,11 @@
                            (static-vectors:static-vector-pointer md-data)
                            :static-draw)
           (gl:bind-buffer :shader-storage-buffer 0)
+          (setf (buffer state :metadata) mdb
+                (buffer state :timestamps) tsb
+                (buffer state :quaternions) qb
+                (buffer state :vectors) vb
+                )
           (list :metadata mdb :timestamps tsb :quaternions qb :vectors vb))))))
 
 
@@ -251,7 +257,7 @@
         (suint "skeleton" skeleton-index)
         (suint "anim" anim-index)
         (suint "startTime" (print start-time-ms))
-        (suint "?state" ?state)
+        (suint "state" ?state)
         (sint "boneMap" (or bone-map -1))
         (%gl:named-buffer-sub-data (buffer state :anim-instance)
                                    (* anim-instance-index size)
@@ -343,10 +349,6 @@
               do (loop for j below 16
                        for e across m
                        do (setf (cffi:mem-aref pp :float (+ j (* i 16))) e)))
-        (format t "upload matrices to buffer ~s:~%~s~%"
-                (buffer state :skeletons)
-                local-matrices
-                )
         (gl:bind-buffer :shader-storage-buffer (buffer state :skeletons))
         (%gl:buffer-sub-data :shader-storage-buffer (* index size) size fp)
         (gl:bind-buffer :shader-storage-buffer 0)))))
@@ -418,16 +420,24 @@
                        (getf sizes :anim-instance) max-anim-instances)
       (%update-buffers state :skeletons
                        (getf sizes :skeleton) max-skeletons)
-      (setf (buffer state :max-skeletons) max-anim-instances)
+      (setf (buffer state :max-active-anims) max-anim-instances)
       (setf (buffer state :max-skeletons) max-skeletons)
       (setf (buffer state :anim-state-sizes) sizes)
       t ;; caller needs to upload skeleton/instance data again
       )))
 
+(defun live-programs-hook ()
+  (when *gpu-anim-state*
+    (loop for (k v) on (programs *gpu-anim-state*) by #'cddr
+          collect v)))
+
+(pushnew 'live-programs-hook basecode-shader-helper::*live-program-hooks*)
+
 (defun %notice-modified-programs (shader)
   (let ((s (loop for (k v) on (programs *gpu-anim-state*) by #'cddr
                  when (eq v shader)
                    return k)))
+    (format t "%nms ~s~%" shader)
     (when (eq s :update-anim)
       (format t "modified gpuanim shader~%")
       (maybe-rebuild-state-buffers :force nil))))
@@ -499,15 +509,16 @@
                          :metadata :quaternions :vectors :timestamps)
               for buffer = (buffer state k)
               for binding in '(0 2 3 4 5 6)
+              when buffer
               do (%gl:bind-buffer-base :shader-storage-buffer binding buffer))
-        (setf (3bgl-shaders::uniform p '3bgl-gpuanim-shaders:max-bone)
+       #++ (setf (3bgl-shaders::uniform p '3bgl-gpuanim-shaders:max-bone)
               *max-bone*)
         (setf (3bgl-shaders::uniform p '3bgl-gpuanim-shaders:time-ms)
               (or *hack-time*
                   (* 1000
                      (/ (get-internal-real-time)
                         internal-time-units-per-second))))
-        (setf (3bgl-shaders::uniform p '3bgl-gpuanim-shaders:max-bone-models)
+        #++(setf (3bgl-shaders::uniform p '3bgl-gpuanim-shaders:max-bone-models)
               *max-bone-models*)
         (%gl:memory-barrier #.(cffi:foreign-enum-value
                                '%GL:ENUM :shader-storage-barrier-bit))
@@ -518,8 +529,17 @@
 
 
 (defun bind-anim-buffers (&key (state *gpu-anim-state*))
-  (%gl:bind-buffer-base :shader-storage-buffer 2 (buffer state :skeletons))
-  (%gl:bind-buffer-base :shader-storage-buffer 0 (buffer state :anim-instance))
+  (flet ((bind (index key)
+           (let ((b (buffer state key)))
+             (when b(%gl:bind-buffer-base :shader-storage-buffer index b)))))
+    (bind 0 :anim-instance)
+    ;; 1 = anims
+    (bind 2 :skeletons)
+    (bind 3 :metadata)
+    (bind 4 :quaternions)
+    (bind 5 :vectors)
+    (bind 6 :timestamps))
+  ;; 7 = anim-bone-map
 )
 
 (defun call-with-gpu-anim-state (thunk)

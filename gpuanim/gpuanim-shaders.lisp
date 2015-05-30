@@ -286,7 +286,7 @@
         ;; todo: get rid of this once times actually match anim state
         (progn ;when (< time 0.1)
           (setf last (ivec4 0)))
-        (when (= 0 bone) ;; fixme
+        (progn ;unless (= 0 bone) ;; fixme
           (let* ((c (@ key-data pos-count))
                  (timestamps-offset (@ key-data pos-timestamp-offset))
                  (keys-offset (@ key-data pos-offset))
@@ -323,6 +323,7 @@
         ;; calculate local transform from pos/orientation
         ;; fixme: adjust for bone-map
         (setf (aref (@ instance matrices) bone)
+              #++(aref (@ skel local-matrix) bone)
               (* (mat4 (vec4 1 0 0 0) (vec4 0 1 0 0) (vec4 0 0 1 0)
                        (vec4 position 1.0))
                  (quat-matrix
@@ -342,7 +343,7 @@
       (progn ;when (<= bone (@ anim num-bones))
         (update-bone bone (if (< time-ms 10000)
                               (float time-ms)
-                              (/ (float (mod time-ms 20000)) 60))
+                              (/ (float (mod time-ms 1000)) 1))
                      anim-instance-id anim skeleton))
       ;; loop over depth of tree accumulating global transforms
       (let ((parent (aref (@ skeleton parent) bone))
@@ -364,7 +365,7 @@
                   (* (aref (@ anim-instance matrices) parent)
                      (aref (@ anim-instance matrices) bone)))))
         (barrier)
-        (setf (aref (@ anim-instance matrices) bone)
+        #++(setf (aref (@ anim-instance matrices) bone)
               (* (aref (@ anim-instance matrices) bone)
                  (aref (@ skeleton inverse-bind-matrix) bone)))))))
 
@@ -387,9 +388,10 @@
                        #++(aref (@ s local-matrix) i)
                        (vec4 0 0 0 1)))))
     (setf (@ outs color) (vec4
-                          #. (random 1.0); (/ (float draw-skel-anim-index) 16)
-                          #. (random 1.0)
-                          1
+                          (/ i 32.0)
+                          ; (/ (float draw-skel-anim-index) 16)
+                          #.(random 1.0)
+                          (+ 0.5 #. (random 0.5))
                           1 ))))
 
 
