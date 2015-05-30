@@ -60,16 +60,19 @@
            (progn
              (gl:with-primitive :points
                (loop for i below 64
-                     do (gl:vertex-attrib 4 i 0 0 1)
-                        (gl:vertex-attrib 0 (* 0(/ i 64.0)) 0 0 1)))
+                     do (gl:vertex-attrib 4 1 0 0 0)
+                        (%gl:vertex-attrib-i4i 5 i 0 0 0)
+                        (gl:vertex-attrib 0 0 0 0 1)))
              (gl:with-primitive :lines
                (loop for p in '(-1 0 1 2 3 2 5 6 7 8 7 10 11 7 2 14 15
                                 16 17 16 19 20 16 1 23 24 25 24 1 28 29 30 29)
                      for i below 64 ;(1+ (mod (get-universal-time) 63))
                      when (plusp p)
-                       do (gl:vertex-attrib 4 p 0 0 1)
+                       do (gl:vertex-attrib 4 1 0 0 0)
+                          (%gl:vertex-attrib-i4i 5 p 0 0 0)
                           (gl:vertex-attrib 0 0 0 0 1)
-                          (gl:vertex-attrib 4 i 0 0 1)
+                          (gl:vertex-attrib 4 1 0 0 0)
+                          (%gl:vertex-attrib-i4i 5 i 0 0 0)
                           (gl:vertex-attrib 0 0 0 0 1))))
          (clear-tex () :report "clear mesh"
            (setf (num-instances w) 0)))))))

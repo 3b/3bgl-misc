@@ -381,12 +381,15 @@
          (s (aref skeletons draw-skel-skel-index))
          (ai (aref anim-instances draw-skel-anim-index)))
     draw-skel-skel-index
-    (setf gl-position
-          (* mvp (+ (vec4 0)
-                    ;(vec4 (.xyz position) 0)
-                    (* (aref (@ ai matrices) i)
-                       #++(aref (@ s local-matrix) i)
-                       (vec4 0 0 0 1)))))
+    (macrolet ((w (xyz)
+                 `(* (aref (@ ai matrices) (,xyz bone-indices))
+                     position
+                     (,xyz bone-weights))))
+      (setf gl-position
+            (* mvp (+ (w .x)
+                      (w .y)
+                      (w .z)
+                      (w .w)))))
     (setf (@ outs color) (vec4
                           (/ i 32.0)
                           ; (/ (float draw-skel-anim-index) 16)
