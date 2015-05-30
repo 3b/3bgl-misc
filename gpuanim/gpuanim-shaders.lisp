@@ -1,8 +1,3 @@
-#++ (delete-package '#:3bgl-gpuanim-shaders)
-(cl:defpackage #:3bgl-gpuanim-shaders
-  (:use :3bgl-glsl/cl)
-  )
-
 (cl:in-package #:3bgl-gpuanim-shaders)
 
 
