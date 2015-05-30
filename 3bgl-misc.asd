@@ -74,7 +74,12 @@
    (:module "livecode"
     :serial t
     :components ((:file "package")))
-
+   (:module "gpuanim"
+            :serial t
+            :components
+            ((:file "package")
+             (:file "gpuanim-shaders")
+             (:file "gpuanim")))
    (:module "ttf"
             :serial t
             :components
