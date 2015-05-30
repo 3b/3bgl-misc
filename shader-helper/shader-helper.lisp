@@ -11,6 +11,13 @@
 ;; bound to a hash table within an running loop
 (defvar *live-programs*)
 
+;; hook for tracking modifications to programs not managed directly by
+;; the window class
+;; entries are any of:
+;;   a function that returns a list of programs
+;;   a program
+;;   a list of programs
+(defparameter *live-program-hooks* nil)
 
 (defun shader-program-hook (p functions)
   (loop for f in functions
@@ -46,9 +53,29 @@
 
 (defun recompile-modified-shaders (w)
   ;; todo: add a mutex for this
-  (loop for f in (shiftf (modified-shaders w) nil)
-        do (loop for p in (gethash f *live-programs*)
-                 do (3bgl-shaders::flag-shader p f))))
+  (let ((modified (shiftf (modified-shaders w) nil))
+        (more-programs (loop for hook in *live-program-hooks*
+                             append (etypecase hook
+                                      (3bgl-shaders::shader-program
+                                       (list hook))
+                                      (list
+                                       hook)
+                                      ((or function symbol)
+                                       (funcall hook)))))
+        (more-programs-map (make-hash-table)))
+    (loop for f in modified
+          do (loop for p in (gethash f *live-programs*)
+                   do (3bgl-shaders::flag-shader p f)))
+    (loop for p in more-programs
+          do (alexandria:maphash-values
+              (lambda (v)
+                (pushnew p (gethash v more-programs-map)))
+              (3bgl-shaders::stages p)))
+    (loop for f in modified
+          do (loop for p in (gethash f more-programs-map)
+                   do (3bgl-shaders::flag-shader p f))))
+
+)
 
 
 (defmethod basecode-draw :around ((w basecode-shader-helper))
