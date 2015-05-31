@@ -570,5 +570,91 @@
                     :index-type (if short :unsigned-short :unsigned-int)
                     :index-size (if short 2 4))))))))
 
+(defun ai-mesh-1 (mesh bone-map)
+  (assert (= 4 (ai:primitive-types mesh))) ;; must be triangulated
+  (let* ((vcount (length (ai:vertices mesh)))
+         (icount (* 3 (length (ai:faces mesh))))
+         (vindex 0)
+         (short (< vcount 65536))
+         (non-orthogonal-bitangents nil)
+         (bw (make-array vcount :initial-element nil))
+         (bi (make-array vcount :initial-element nil))
+         (uv (make-array vcount :initial-element nil)))
+    (with-static-vectors ((verts (* vcount 3))
+                          (uvs (* vcount 3))
+                          (normals (* vcount 3))
+                          (tangents (* vcount 3))
+                          (bone-weights (* vcount 4))
+                          (bone-indices (* vcount 4) :unsigned-byte))
+      (static-vectors:with-static-vector (indices
+                                          icount
+                                          :element-type (if short
+                                                            '(unsigned-byte 16)
+                                                            '(unsigned-byte 32))
+                                          :initial-element 0)
+        (labels ((add1 (a x &optional (count 3))
+                   (loop for i below count
+                         do (setf (aref a (+ i (* vindex count)))
+                                  (aref (aref x vindex) i)))))
+          (loop for bone across (ai:bones mesh)
+                for index = (gethash (ai:name bone) bone-map)
+                do (assert index)
+                   (loop for w across (ai:weights bone)
+                         do (push index (aref bi (ai:id w)))
+                            (push (ai:weight w) (aref bw (ai:id w)))))
+          (flet ((v4 (x init)
+                   (assert x)
+                   (map-into (make-array 4 :initial-element init)
+                             #'identity (reverse x))))
+            (loop for v below vcount
+                  for w across bw
+                  for i across bi
+                  do (setf (aref bw v) (v4 w 0.0))
+                  do (setf (aref bi v) (v4 i 0))))
+          (loop for uv2 across (aref (ai:texture-coords mesh) 0)
+                for bt across (ai:bitangents mesh)
+                for n across (ai:normals mesh)
+                for tan across (ai:tangents mesh)
+                for dot = (sb-cga:dot-product bt (sb-cga:cross-product n tan))
+                for uv3 = (sb-cga:vec (aref uv2 0) (aref uv2 1) 1.0)
+                for i from 0
+                when (minusp dot)
+                  do (setf (aref uv3 2) -1.0)
+                when (< (abs dot) 0.9)
+                  do (push (list dot n tan bt) non-orthogonal-bitangents)
+                do (setf (aref uv i) uv3))
+          (loop for i below (length (ai:vertices mesh))
+                do (add1 verts (ai:vertices mesh) 3)
+                   (add1 uvs uv 3)
+                   (add1 normals (ai:normals mesh) 3)
+                   (add1 tangents (ai:tangents mesh) 3)
+                   (add1 bone-weights bw 4)
+                   (add1 bone-indices bi 4)
+                   (incf vindex)))
+        (loop for iindex from 0
+              for face across (ai:faces mesh)
+              do (loop for i below 3
+                       do (setf (aref indices (+ i (* iindex 3)))
+                                (aref face i))))
+        (when non-orthogonal-bitangents
+          (warn "non-orthogonal-bitangents")
+          #++(with-simple-restart (continue "continue1")
+            (error "non-orthogonal bitangents in input?"
+                   non-orthogonal-bitangents)))
+        (when (loop for i from 0
+                    for c across (ai:components-per-texture-coord mesh)
+                      thereis (and (zerop i) (/= c 2))
+                        thereis (and (plusp i) (/= c 0)))
+          (with-simple-restart (continue "continue1")
+            (error "unsupported number of texcoords ~s"
+                   (ai:components-per-texture-coord mesh))))
+       (%make-mesh indices
+                   verts uvs normals tangents bone-weights bone-indices
+                   :index-type (if short :unsigned-short :unsigned-int)
+                   :index-size (if short 2 4))))))
 
+(defun ai-mesh (scene bone-map)
+  "return a list of MESH objects from the AI:MESHES in scene"
+  (loop for m across (ai:meshes scene)
+        collect (ai-mesh-1 m bone-map) ))
 
