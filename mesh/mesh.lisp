@@ -150,8 +150,9 @@
                        (aref normals (+ 2 (* i 3))) (aref n 2))))))
 
 (defun %make-mesh (indices verts uvs normals tangents bone-weights bone-indices
-                   &key (index-type :unsigned-int) (index-size 4))
-  (let ((vbos (gl:gen-buffers 7))
+                   &key (index-type :unsigned-int) (index-size 4)
+                     bitangents)
+  (let ((vbos (gl:gen-buffers (if bitangents 8 7)))
         (vao (gl:gen-vertex-array)))
     (unwind-protect
          (progn
@@ -164,14 +165,15 @@
            (loop
               for vbo in (cdr vbos)
               for buffer in (list verts uvs normals tangents bone-weights
-                                  bone-indices)
+                                  bone-indices bitangents)
               for name in '(verts uvs normals tangents bone-weights
-                                  bone-indices)
-              for count in (list 3 3 3 3 4 4)
-              for size in (list 4 4 4 4 4 1)
+                                  bone-indices bitangents)
+              for count in (list 3 3 3 3 4 4 3)
+              for size in (list 4 4 4 4 4 1 4)
               for type in (list :float :float :float :float :float
-                                :unsigned-byte)
+                                :unsigned-byte :float)
               for loc from 0
+              when buffer
               do
                 (gl:enable-vertex-attrib-array loc)
                 (gl:bind-buffer :array-buffer vbo)
@@ -584,6 +586,7 @@
                           (uvs (* vcount 3))
                           (normals (* vcount 3))
                           (tangents (* vcount 3))
+                          (bitangents (* vcount 3))
                           (bone-weights (* vcount 4))
                           (bone-indices (* vcount 4) :unsigned-byte))
       (static-vectors:with-static-vector (indices
@@ -628,6 +631,7 @@
                    (add1 uvs uv 3)
                    (add1 normals (ai:normals mesh) 3)
                    (add1 tangents (ai:tangents mesh) 3)
+                   (add1 bitangents (ai:bitangents mesh) 3)
                    (add1 bone-weights bw 4)
                    (add1 bone-indices bi 4)
                    (incf vindex)))
@@ -651,7 +655,8 @@
        (%make-mesh indices
                    verts uvs normals tangents bone-weights bone-indices
                    :index-type (if short :unsigned-short :unsigned-int)
-                   :index-size (if short 2 4))))))
+                   :index-size (if short 2 4)
+                   :bitangents bitangents)))))
 
 (defun ai-mesh (scene bone-map)
   "return a list of MESH objects from the AI:MESHES in scene"
