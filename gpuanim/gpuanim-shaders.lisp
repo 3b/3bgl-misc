@@ -429,6 +429,7 @@
     (setf gl-position (* mvp bone-position))
     ;(setf gl-position (* mvp position))
 
+    v
     uv
     (setf (@ outs color)
           ;(vec4 .bone-weights 1)
@@ -444,7 +445,66 @@
           (@ outs normal) xn
           (@ outs tangent) xt
           (@ outs bitangent) xb
-          (@ outs light-direction) (vec3 (- (* v light-pos)
-                                            (* v m position)))
+          (@ outs light-direction) (.xyz light-pos)
+          #++(vec3 (- (* v light-pos)
+                      (* v m position)))
           (@ outs eye-direction) (vec3 (* mv position))
                                  )))
+
+(defun draw-anim-fs ()
+  (declare (values))
+  normal-tex light-pos
+  (let* ((uv (vec2 (@ ins uv)))
+         (dtex #++(vec4 1 1 1 1)
+               (texture-2d diffuse-tex uv))
+         (stex #++(vec4 1 1 1 1)
+               (texture-2d specular-tex uv))
+         (ntex (normalize (- (* 2.0 (.rgb (texture-2d normal-tex uv)))
+                             1.0)))
+         (distance (length (@ ins light-direction)))
+         (one-over-d-squared (/ (* distance distance)))
+         (tangent-space
+           (transpose
+            (mat3 (normalize (@ ins tangent))
+                  (normalize (@ ins bitangent))
+                  (normalize (@ ins normal)))))
+         (n (normalize ntex)
+            #++(normalize (@ ins normal)))
+         (l (normalize (* tangent-space (@ ins light-direction))))
+         #++(l (normalize (@ ins light-direction)))
+         (e (normalize (@ ins eye-direction))
+            #++(normalize (* tangent-space (@ ins eye-direction))))
+         (r (reflect l n))
+         (cos-theta (clamp (dot n l) 0.0 1.0))
+         (cos-alpha (clamp (dot e r) 0.0 1.0))
+         ;; attenuate specular reflections from fragments facing away
+         ;; from light in case normal map points back towards light
+         (spec-back-falloff (smooth-step -0.8 0.0 (dot (- e) l))))
+
+    (setf color
+          (vec4
+           #++(* tangent-space (vec3 0 0 1))
+           #++(.xyz ntex)
+           #++(vec3 (* 0.2 (length (.xyz (@ ins eye-direction)))))
+           #++(vec3 cos-theta)
+           #++(vec3 (if (< distance 1) 1 0))
+           #++(+ 0.5 (/ (.yyy l) 2))
+           #++(vec3 (- spec-back-falloff 0.9))
+           #++(vec3 (* 8 one-over-d-squared))
+           #++(* 0.1 (vec3 distance))
+           #++(vec3 (@ ins bitangent))
+           #++(.xyz  (@ ins color))
+           (+ (* spec-back-falloff
+                 (.xyz dtex) cos-theta
+                 ;; 32 one-over-d-squared
+                 ;; fixme: uniforms for light colors...
+                 (vec3 1 1 1))
+              #++(* (.xyz dtex) (clamp (dot n e) 0 1))
+              (* (.xyz dtex) 0.1) ;; ambient
+              0
+              (* spec-back-falloff
+                 (* (.xyz stex)
+                                        ;(vec3 0.8 0.3 0.8) ; light color
+                                        ;5.0 one-over-d-squared
+                    (pow cos-alpha (* 16.0 (.a stex))))))
+           1.0))))

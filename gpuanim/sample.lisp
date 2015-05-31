@@ -7,9 +7,18 @@
                         basecode-exit-on-esc
                         basecode-shader-helper::basecode-shader-helper)
   ((vaos :accessor vaos :initform nil)
+   (textures :accessor textures :initform (make-hash-table :test 'equalp))
    (instances :accessor instances :initform ())
    (programs :accessor programs :initform nil))
    (:default-initargs :look-at-eye '(3 2 15) :projection-near 0.1))
+
+
+
+(defparameter *basedir* #P"d:/temp/models/arxeos/")
+(defparameter *meshfile* #P"d:/temp/models/arxeos/models/md5/characters/npcs/knight/knight.md5mesh")
+(defparameter *animfiles* (directory "d:/temp/models/arxeos/models/md5/characters/npcs/knight/*.md5anim"))
+
+
 
 (defparameter *w* nil)
 
@@ -31,7 +40,68 @@
         (3bgl-shaders::shader-program :vertex
                                       '3bgl-gpuanim-shaders::draw-skel-vs
                                       :fragment
-                                      '3bgl-gpuanim-shaders::draw-skel-fs)))
+                                      '3bgl-gpuanim-shaders::draw-skel-fs))
+  (setf (program w :draw-anim)
+        (3bgl-shaders::shader-program :vertex
+                                      '3bgl-gpuanim-shaders::draw-anim-vs
+                                      :fragment
+                                      '3bgl-gpuanim-shaders::draw-anim-fs)))
+
+(defun tex-image-tga (path)
+  (let ((image (tga:read-tga path))
+        (tn (car (gl:gen-textures 1))))
+    (gl:bind-texture :texture-2d tn)
+    (gl:tex-image-2d :texture-2d 0 :rgba
+                     (tga:image-width image) (tga:image-height image)
+                     0
+                     (ecase (tga:image-channels image)
+                       (1 :luminance)
+                       (3 :bgr)
+                       (4 :bgra))
+                     :unsigned-byte (tga:image-data image))
+    (gl:generate-mipmap :texture-2d)
+    (gl:tex-parameter :texture-2d :texture-mag-filter :linear)
+    (gl:tex-parameter :texture-2d :texture-min-filter :linear-mipmap-linear)
+    (gl:bind-texture :texture-2d 0)
+    tn))
+
+(defun load-texture-file (path)
+  (if (alexandria:ends-with-subseq ".TGA"
+                                   (if (pathnamep path)
+                                       (namestring path)
+                                       path)
+                                   :test 'equalp)
+      (tex-image-tga path)
+      (3bgl-opticl:tex-image-2d :texture-2d 9 :rgba
+                                (opticl:read-image-file path))))
+
+(defun bind-material (w mat)
+  (flet ((texture (n)
+           (+ n #.(cffi:foreign-enum-value '%gl:enum :texture0))))
+    ;; clear textures
+    (unless mat
+      (loop for i from 4 downto 0
+            do (gl:active-texture (texture i))
+               (gl:bind-texture :texture-2d 0))
+      (return-from bind-material nil))
+    ;; try to bind textures
+    (let ((files (gethash "$tex.file" mat)))
+      (flet ((bind (unit key)
+               (gl:active-texture (texture unit))
+               (let* ((name (third (assoc key files)))
+                      (path (merge-pathnames name *basedir*)))
+                 (multiple-value-bind (tex found) (gethash name (textures w))
+                   (unless found
+                     (if (probe-file path)
+                         (setf (gethash name (textures w))
+                               (load-texture-file path))
+                         (setf (gethash name (textures w)) 0)))
+                   (gl:bind-texture :texture-2d (or tex 0))))))
+        (bind 0 :ai-texture-type-diffuse)
+        (bind 1 :ai-texture-type-normals)
+        (bind 2 :ai-texture-type-specular)
+        (bind 3 :ai-texture-type-height))
+      (gl:active-texture (texture 0)))))
 
 (defmethod basecode-draw ((w gpuanim-test))
   (sleep 0.01)
@@ -39,13 +109,25 @@
   (setf (basecode::clear-color w) (list 0.2 0.25 0.4 1.0))
   (setf *w* w)
   (3bgl-gpuanim::update-anim-state (length (instances w)))
-  (let ((p (program w :draw-skel)))
+  (let* ((p (program w :draw-anim))
+         (lr 8)
+         (irt ;10000
+              (get-internal-real-time)
+              )
+         (lz (* lr (cos (/ irt 500))))
+         (ly (+ 8 (* 16 (sin (/ irt 4444)))))
+         (lx (* lr (sin (/ irt 500)))))
     (gl:point-size 5)
     (3bgl-shaders::with-program (p :error-p t)
       (3bgl-gpuanim::bind-anim-buffers)
       (setf (3bgl-shaders::uniform p
                                    '3bgl-gpuanim-shaders::draw-skel-skel-index)
             0)
+      (setf (3bgl-shaders::uniform p '3bgl-gpuanim-shaders::diffuse-tex) 0)
+      (setf (3bgl-shaders::uniform p '3bgl-gpuanim-shaders::normal-tex) 1)
+      (setf (3bgl-shaders::uniform p '3bgl-gpuanim-shaders::specular-tex) 2)
+      (setf (3bgl-shaders::uniform p '3bgl-gpuanim-shaders::light-pos)
+            (list lx ly lz 1.0))
       (loop
         with n = (length (instances w))
         with sn = (ceiling (sqrt n))
@@ -56,7 +138,7 @@
         for y = (float (- (floor i sn)  (/ (1- sn) 2.0)))
         do
            (setf (3bgl-shaders::uniform p
-                                   '3bgl-gpuanim-shaders::draw-skel-anim-index)
+                                        '3bgl-gpuanim-shaders::draw-skel-anim-index)
                  (or (getf instance :instance) i))
            (basecode-shader-helper::mvp
             w p :m (sb-cga:matrix*
@@ -86,8 +168,12 @@
                               (gl:vertex-attrib 4 1 0 0 0)
                               (%gl:vertex-attrib-i4i 5 i 0 0 0)
                               (gl:vertex-attrib 0 0 0 0 1)))
-                 (loop for m in (getf instance :meshes)
-                       do (3bgl-mesh::draw m)))
+                 (loop with mats = (coerce (getf instance :materials) 'list)
+                       for m in (getf instance :meshes)
+                       for i below 4
+                       for mat = (pop mats)
+                       do (bind-material w mat)
+                          (3bgl-mesh::draw m)))
              (clear-tex () :report "clear mesh"
                (setf (instances w) nil)))))))
 
@@ -95,10 +181,6 @@
 (defmethod basecode-shader-helper::shader-recompiled ((w gpuanim-test) sp)
   (format t "~s modified~%" sp)
   (3bgl-gpuanim::%notice-modified-programs sp))
-
-
-(defparameter *meshfile* #P"d:/temp/models/arxeos/models/md5/characters/npcs/knight/knight.md5mesh")
-(defparameter *animfiles* (directory "d:/temp/models/arxeos/models/md5/characters/npcs/knight/*.md5anim"))
 
 (defun load-md5 (filename
                  &key (flags '(:ai-process-preset-target-realtime-quality)))
@@ -256,7 +338,8 @@
     ;; update (instances w)
     (setf (instances w)
           (loop for i below (length *animfiles*)
-                collect (list :instance i :meshes (vaos w)))
+                collect (list :instance i :meshes (vaos w)
+                              :materials (ai:materials mesh)))
           )))
 
 
