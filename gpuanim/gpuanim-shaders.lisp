@@ -288,7 +288,7 @@
         ;; todo: get rid of this once times actually match anim state
         (progn ;when (< time 0.1)
           (setf last (ivec4 0)))
-        (progn ;unless (= 0 bone) ;; fixme
+        (unless (= 0 bone) ;; 0 is position, so skip it to run/walk in place
           (let* ((c (@ key-data pos-count))
                  (timestamps-offset (@ key-data pos-timestamp-offset))
                  (keys-offset (@ key-data pos-offset))
@@ -345,7 +345,9 @@
       (when (<= bone (@ anim num-bones))
         (update-bone bone (if (< time-ms 60000)
                               (float time-ms)
-                              (/ (float (mod time-ms (@ anim length)))
+                              (/ (float (mod (+ time-ms
+                                                (* anim-instance-id 1))
+                                             (@ anim length)))
                                  1))
                      anim-instance-id anim skeleton))
       ;; loop over depth of tree accumulating global transforms

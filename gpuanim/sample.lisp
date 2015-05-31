@@ -10,12 +10,30 @@
    (textures :accessor textures :initform (make-hash-table :test 'equalp))
    (instances :accessor instances :initform ())
    (programs :accessor programs :initform nil))
-   (:default-initargs :look-at-eye '(3 2 15) :projection-near 0.1))
+   (:default-initargs :look-at-eye '(3 2 15)
+                      :projection-near 0.1 :projection-far 1000))
 
 
 
 (defparameter *basedir* #P"d:/temp/models/arxeos/")
+(defparameter *files*
+  (loop for p in (loop for i in '("models/md5/characters/**/*.md5mesh"
+                                  "models/md5/monsters/**/*.md5mesh"
+                                  "models/md5/creatures/**/*.md5mesh")
+                       append (directory (merge-pathnames i *basedir*)))
+        for a = (directory (merge-pathnames "*.md5anim" p))
+        unless (or
+                ;; breaks something?
+                (search "skeleton" (namestring p))
+                ;; too many bones :/ ~68?
+                (search "snake_woman" (namestring p))
+                ;; no interesting anims?
+                (search "cannon" (namestring p)))
+          collect (list p a)))
+
+#++
 (defparameter *meshfile* #P"d:/temp/models/arxeos/models/md5/characters/npcs/knight/knight.md5mesh")
+#++
 (defparameter *animfiles* (directory "d:/temp/models/arxeos/models/md5/characters/npcs/knight/*.md5anim"))
 
 
@@ -51,14 +69,15 @@
   (let ((image (tga:read-tga path))
         (tn (car (gl:gen-textures 1))))
     (gl:bind-texture :texture-2d tn)
-    (gl:tex-image-2d :texture-2d 0 :rgba
-                     (tga:image-width image) (tga:image-height image)
-                     0
-                     (ecase (tga:image-channels image)
-                       (1 :luminance)
-                       (3 :bgr)
-                       (4 :bgra))
-                     :unsigned-byte (tga:image-data image))
+    (unless (eql (tga:image-data image) 0)
+     (gl:tex-image-2d :texture-2d 0 :rgba
+                      (tga:image-width image) (tga:image-height image)
+                      0
+                      (ecase (tga:image-channels image)
+                        (1 :luminance)
+                        (3 :bgr)
+                        (4 :bgra))
+                      :unsigned-byte (tga:image-data image)))
     (gl:generate-mipmap :texture-2d)
     (gl:tex-parameter :texture-2d :texture-mag-filter :linear)
     (gl:tex-parameter :texture-2d :texture-min-filter :linear-mipmap-linear)
@@ -104,7 +123,7 @@
       (gl:active-texture (texture 0)))))
 
 (defmethod basecode-draw ((w gpuanim-test))
-  (sleep 0.01)
+  ;(sleep 0.01)
   (gl:enable :depth-test)
   (setf (basecode::clear-color w) (list 0.2 0.25 0.4 1.0))
   (setf *w* w)
@@ -131,11 +150,11 @@
       (loop
         with n = (length (instances w))
         with sn = (ceiling (sqrt n))
-        with space = 8.0
+        with space = 4.0
         for i below n
         for instance in (instances w)
-        for x = (float (mod i sn))
-        for y = (float (- (floor i sn)  (/ (1- sn) 2.0)))
+        for x = (float (- (floor i sn) (/ (1- sn) 2.0)))
+        for y = (float (- (mod i sn)  (/ (1- sn) 2.0)))
         do
            (setf (3bgl-shaders::uniform p
                                         '3bgl-gpuanim-shaders::draw-skel-anim-index)
@@ -146,7 +165,7 @@
                                            1.0)
                                     0.0 0.0)
                     (sb-cga:translate* (* space x) (* space y) 0.0)
-                    (sb-cga:scale* 0.1 0.1 0.1)))
+                    (sb-cga:scale* 0.05 0.05 0.05)))
            (restart-case
                (progn
                  #++
@@ -193,7 +212,9 @@
                          ;; remove points and lines
                          :properties '(:pp-sbp-remove 3))))
 
+#++
 (defparameter *mesh* (load-md5 *meshfile*))
+#++
 (defparameter *anims* (mapcar 'load-md5 *animfiles*))
 
 (defun dump-node (x &key (depth 0))
@@ -301,46 +322,64 @@
 
 (defparameter *foo* 0)
 (defun load-files (w)
+  (setf (instances w) nil)
+  #++(when (plusp (hash-table-count (textures w)))
+       (gl:delete-textures (alexandria:hash-table-values (textures w)))
+       (clrhash (textures w)))
   (when (vaos w)
     (mapcar #'3bgl-mesh::free-mesh (shiftf (vaos w) nil)))
-  ;; todo: handle multiple meshes + anim sets at once
-  (let* ((skeleton-map (make-hash-table :test 'equal))
-         (mesh (load-md5 *meshfile*)))
-    ;;   upload skeleton
-    (upload-ai-skeleton 0 mesh :name-map skeleton-map)
-    ;; translate mesh
-    (setf (vaos w) (when mesh (3bgl-mesh::ai-mesh mesh skeleton-map)))
-    ;; load anims
-    ;;   upload anim data
-    ;;   todo: handle files with no anim, check for anim in meshfile?
-    (let ((anim-data
-            (loop
-              with i = 0
-              for file in *animfiles*
-              for scene = (load-md5 file)
-              for anims = (ai:animations scene)
+  ;; todo: share data if multiple mesh use same anims
+  (loop
+    with anim-count = 0
+    for (meshfile animfiles) in *files*
+    for skeleton-id from 0
+    for skeleton-map = (make-hash-table :test 'equal)
+    for mesh = (when animfiles (load-md5 meshfile))
+    for vao = nil
+    when animfiles
+      do (upload-ai-skeleton skeleton-id mesh :name-map skeleton-map)
+         (setf vao (3bgl-mesh::ai-mesh mesh skeleton-map))
+      and append vao into vaos
+      and append
+          (loop
+            for file in (cons meshfile animfiles)
+            for scene = (load-md5 file)
+            for anims = (ai:animations scene)
+            when anims
               append (loop
                        for anim across anims
                        for a = (translate-ai-anim anim skeleton-map)
                        for name = (list (ai:name anim) (pathname-name file))
                        when a
-                         collect (list :index i :anim a :name name)
-                         and do (incf i)
-                                (setf (3bgl-gpuanim::name a) name)))))
-      (setf *foo* mesh)
-      (3bgl-gpuanim:build-anim-data (loop for i in anim-data
-                                          collect (getf i :anim)))
-      ;; create anim instances
-      (loop for i below (length *animfiles*)
-            do (3bgl-gpuanim:update-instance-data i
-                                                  :anim-index i)))
-
-    ;; update (instances w)
-    (setf (instances w)
-          (loop for i below (length *animfiles*)
-                collect (list :instance i :meshes (vaos w)
-                              :materials (ai:materials mesh)))
-          )))
+                         collect (list :anim-index anim-count
+                                       :skeleton-index skeleton-id
+                                       :anim a
+                                       :name name
+                                       :mesh mesh
+                                       :vaos vao)
+                         and do (incf anim-count)
+                                (setf (3bgl-gpuanim::name a) name)))
+      into anim-data
+    finally
+       (3bgl-gpuanim:build-anim-data (loop for i in anim-data
+                                           collect (getf i :anim)))
+       ;; create anim instances
+       (setf (instances w)
+             (loop
+               for r below 16
+               append
+               (loop for i from (* r (length anim-data))
+                     for a in anim-data
+                     for vao = (getf a :vaos)
+                     for mesh = (getf a :mesh)
+                     for anim = (getf a :anim-index)
+                     for skel = (getf a :skeleton-index)
+                     do (3bgl-gpuanim:update-instance-data i
+                                                           :skeleton-index skel
+                                                           :anim-index anim)
+                     collect (list :instance i :meshes vao
+                                   :materials (ai:materials mesh)))))
+       (setf (vaos w) vaos)))
 
 
 (defmethod key-down ((w gpuanim-test) k)
