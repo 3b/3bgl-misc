@@ -8,6 +8,7 @@
 (input tangent :vec3 :location 3)
 (input bone-weights :vec4 :location 4)
 (input bone-indices :ivec4 :location 5)
+(input bitangent :vec3 :location 6)
 
 (input color :vec4 :location 10)
 
@@ -416,16 +417,15 @@
   light-pos bone-weights bone-indices
   (let* ((xn (normalize (* (mat3 normal-matrix) normal)))
          (xt (normalize (* (mat3 normal-matrix) tangent)))
-         (xb (normalize (* (cross xn xt) (vec3 (.z uv)))))
+         #++(xb (normalize (* (cross xn xt) (vec3 (.z uv)))))
+         (xb (normalize (* (mat3 normal-matrix) bitangent)))
          (bone-position
            #++(* (read-bone-a (.x bone-indices)) position)
 
            (+ (* (.x bone-weights) (* (read-bone-a (.x bone-indices)) position))
               (* (.y bone-weights) (* (read-bone-a (.y bone-indices)) position))
               (* (.z bone-weights) (* (read-bone-a (.z bone-indices)) position))
-              (* (.w bone-weights) (* (read-bone-a (.w bone-indices)) position))))
-
-)
+              (* (.w bone-weights) (* (read-bone-a (.w bone-indices)) position)))))
     (setf gl-position (* mvp bone-position))
     ;(setf gl-position (* mvp position))
 

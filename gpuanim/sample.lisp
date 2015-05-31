@@ -111,7 +111,7 @@
   (3bgl-gpuanim::update-anim-state (length (instances w)))
   (let* ((p (program w :draw-anim))
          (lr 8)
-         (irt ;10000
+         (irt ;12000
               (get-internal-real-time)
               )
          (lz (* lr (cos (/ irt 500))))
