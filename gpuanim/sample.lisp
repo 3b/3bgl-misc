@@ -6,8 +6,8 @@
                         freelook-camera
                         basecode-exit-on-esc
                         basecode-shader-helper::basecode-shader-helper)
-  ((mesh :accessor mesh :initform nil)
-   (num-instances :accessor num-instances :initform 0)
+  ((vaos :accessor vaos :initform nil)
+   (instances :accessor instances :initform ())
    (programs :accessor programs :initform nil))
    (:default-initargs :look-at-eye '(3 2 15) :projection-near 0.1))
 
@@ -34,28 +34,30 @@
                                       '3bgl-gpuanim-shaders::draw-skel-fs)))
 
 (defmethod basecode-draw ((w gpuanim-test))
-  ;;(sleep 0.1)
+  (sleep 0.01)
+  (gl:enable :depth-test)
   (setf (basecode::clear-color w) (list 0.2 0.25 0.4 1.0))
   (setf *w* w)
-  (3bgl-gpuanim::update-anim-state (num-instances w))
+  (3bgl-gpuanim::update-anim-state (length (instances w)))
   (let ((p (program w :draw-skel)))
-    (gl:point-size 10)
+    (gl:point-size 5)
     (3bgl-shaders::with-program (p :error-p t)
       (3bgl-gpuanim::bind-anim-buffers)
       (setf (3bgl-shaders::uniform p
                                    '3bgl-gpuanim-shaders::draw-skel-skel-index)
             0)
       (loop
-        with n = (num-instances w)
+        with n = (length (instances w))
         with sn = (ceiling (sqrt n))
         with space = 8.0
         for i below n
+        for instance in (instances w)
         for x = (float (mod i sn))
         for y = (float (- (floor i sn)  (/ (1- sn) 2.0)))
         do
            (setf (3bgl-shaders::uniform p
                                    '3bgl-gpuanim-shaders::draw-skel-anim-index)
-            i)
+                 (or (getf instance :instance) i))
            (basecode-shader-helper::mvp
             w p :m (sb-cga:matrix*
                     (sb-cga:rotate* (float (/ pi -2)
@@ -65,11 +67,13 @@
                     (sb-cga:scale* 0.1 0.1 0.1)))
            (restart-case
                (progn
+                 #++
                  (gl:with-primitive :points
                    (loop for i below 33
                          do (gl:vertex-attrib 4 1 0 0 0)
                             (%gl:vertex-attrib-i4i 5 i 0 0 0)
                             (gl:vertex-attrib 0 0 0 0 1)))
+                 #++
                  (gl:with-primitive :lines
                    (loop for p in '(-1 0 1 2 3 2 5 6 7 8 7 10 11 7 2 14 15
                                     16 17 16 19 20 16 1 23 24 25 24 1 28
@@ -81,9 +85,11 @@
                               (gl:vertex-attrib 0 0 0 0 1)
                               (gl:vertex-attrib 4 1 0 0 0)
                               (%gl:vertex-attrib-i4i 5 i 0 0 0)
-                              (gl:vertex-attrib 0 0 0 0 1))))
+                              (gl:vertex-attrib 0 0 0 0 1)))
+                 (loop for m in (getf instance :meshes)
+                       do (3bgl-mesh::draw m)))
              (clear-tex () :report "clear mesh"
-               (setf (num-instances w) 0)))))))
+               (setf (instances w) nil)))))))
 
 
 (defmethod basecode-shader-helper::shader-recompiled ((w gpuanim-test) sp)
@@ -98,7 +104,12 @@
                  &key (flags '(:ai-process-preset-target-realtime-quality)))
   (assert (probe-file filename))
   (ai:with-log-to-stdout ()
-    (ai:import-into-lisp filename :processing-flags flags)))
+    (ai:import-into-lisp filename
+                         ;; need at least sort-by-p-type to remove types
+                         :processing-flags (adjoin :ai-process-sort-by-p-type
+                                                   flags)
+                         ;; remove points and lines
+                         :properties '(:pp-sbp-remove 3))))
 
 (defparameter *mesh* (load-md5 *meshfile*))
 (defparameter *anims* (mapcar 'load-md5 *animfiles*))
@@ -205,14 +216,18 @@
                              (map 'vector #'ts (ai:scaling-keys channel))
                              (map 'vector #'vkeys (ai:scaling-keys channel))))
          '< :key 'car))))))
+
 (defparameter *foo* 0)
 (defun load-files (w)
+  (when (vaos w)
+    (mapcar #'3bgl-mesh::free-mesh (shiftf (vaos w) nil)))
   ;; todo: handle multiple meshes + anim sets at once
-  (let ((skeleton-map (make-hash-table :test 'equal)))
-    ;; load mesh
-    (setf (mesh w) (load-md5 *meshfile*))
+  (let* ((skeleton-map (make-hash-table :test 'equal))
+         (mesh (load-md5 *meshfile*)))
     ;;   upload skeleton
-    (upload-ai-skeleton 0 (mesh w) :name-map skeleton-map)
+    (upload-ai-skeleton 0 mesh :name-map skeleton-map)
+    ;; translate mesh
+    (setf (vaos w) (when mesh (3bgl-mesh::ai-mesh mesh skeleton-map)))
     ;; load anims
     ;;   upload anim data
     ;;   todo: handle files with no anim, check for anim in meshfile?
@@ -230,7 +245,7 @@
                          collect (list :index i :anim a :name name)
                          and do (incf i)
                                 (setf (3bgl-gpuanim::name a) name)))))
-      (setf *foo* anim-data)
+      (setf *foo* mesh)
       (3bgl-gpuanim:build-anim-data (loop for i in anim-data
                                           collect (getf i :anim)))
       ;; create anim instances
@@ -238,8 +253,11 @@
             do (3bgl-gpuanim:update-instance-data i
                                                   :anim-index i)))
 
-    ;; update (num-instances w)
-    (setf (num-instances w) (length *animfiles*))))
+    ;; update (instances w)
+    (setf (instances w)
+          (loop for i below (length *animfiles*)
+                collect (list :instance i :meshes (vaos w)))
+          )))
 
 
 (defmethod key-down ((w gpuanim-test) k)
@@ -248,7 +266,6 @@
       (:l
        (load-files w))
       (:f9
-       (setf (width w) 1920)
        )
       ((:f12 :l1)
        (basecode::reset-freelook-camera w)))))
@@ -256,5 +273,5 @@
 (setf 3bgl-shaders::*print-shaders* t)
 ;(setf 3bgl-shaders::*verbose* nil)
 
-; (basecode-run (make-instance 'gpuanim-test     :width 1920 :height 1080))
+; (basecode-run (make-instance 'gpuanim-test :width 1920 :height 1080))
 

@@ -27,7 +27,7 @@
 (uniform specular-tex :sampler-2d :stage :fragment)
 (uniform normal-tex :sampler-2d :stage :fragment)
 ;; debugging
-(uniform skip-inv-bind-matrix :bool :stage :compute :default true)
+(uniform skip-inv-bind-matrix :bool :stage :compute :default false)
 
 ;; varyings
 (interface varyings (:out (:vertex outs)
@@ -355,7 +355,7 @@
         ;; (or maybe just go up to 64?)
         ;; not sure if (@ skeleton max-depth) is "uniform flow control" or not
 
-        (dotimes (i 16 #++(min 16 (@ skeleton max-depth)))
+        (dotimes (i 16 #++(min 16 (1+ (@ skeleton max-depth))))
           (barrier)
                                         ;(group-memory-barrier)
                                         ;(memory-barrier-buffer)
@@ -394,11 +394,13 @@
                       (w .z)
                       (w .w)))))
     (setf (@ outs color) (vec4
-                          (/ i 32.0)
+                          (/ (.x bone-indices) 33.0)
+                          (/ (.y bone-indices) 33.0)
                           ; (/ (float draw-skel-anim-index) 16)
-                          #.(random 1.0)
+                          ;#.(random 1.0)
+                          ;#.(random 1.0)
                           (+ 0.5 #. (random 0.5))
-                          1 ))))
+                          1))))
 
 
 (defun draw-skel-fs ()
