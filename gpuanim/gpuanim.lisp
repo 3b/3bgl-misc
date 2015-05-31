@@ -56,22 +56,27 @@
 ;; probably just upload metadata to GPU also, return 2 SSBO IDs?
 ;; probably also send input as soa (seq of tx + seq of keys) instead
 ;;   of aos, so we can just hash them directly to find dupe?
+(defclass anim-data ()
+  ((length-ms :accessor length-ms :initarg :length-ms :initform 0)
+   ;; sequence of lists of 6 sequences (1 6 element list per bone):
+   ;;     quaternion key timestamps (integer ms)
+   ;;     quaternion keys (as 4 element (signed-byte 16) vectors)
+   ;;     position key timestamps (integer ms)
+   ;;     position keys (sb-cga:vec)
+   ;;     scale key timestamps (integer ms)
+   ;;     scale keys (sb-cga:vec)
+   ;;  timestamp seq and corresponding key seq should be same length
+   ;;  but length may be 1 for a given pair, and distinct pairs can be
+   ;;  different length (pos and scale will tend to be length 1, with
+   ;;  appropriate 'identity' value for the single key)
+   ;;  - bones with no animation can have NIL or list of 6 NILS
+   (bone-data :accessor bone-data :initarg :bone-data :initform nil)
+   ;; not sure if these are needed?
+   (anim-rate :accessor anim-rate :initarg :anim-rate :initform 30)
+   (name :accessor name :initarg :name :initform "")))
 
 (defun build-anim-data (anim-data &key (state *gpu-anim-state*))
-  ;; anim-data is sequence of sets of keyframe data for a single bone
-  ;;   each entry contains the keyframes for a single bone of a single anim
-  ;;     so entire buffer is #bones * #anims entries
-  ;;   for each entry, contains list of 6 sequences:
-  ;;     quaternion key timestamps
-  ;;     quaternion keys (as 4 element (signed-byte 16) vectors)
-  ;;     position key timestamps
-  ;;     position keys
-  ;;     scale key timestamps
-  ;;     scale keys
-  ;;    timestamp seq and corresponding key seq should be same length
-  ;;    but length may be 1 for a given pair, and distinct pairs can be
-  ;;    different length (pos and scale will tend to be length 1, with
-  ;;    appropriate 'identity' value for the single key)
+  ;; anim-data is sequence of ANIM-DATA instances
 
   ;; todo: find duplicates of subsequences of keyframes/timestamps?
   ;;  (more likely just need to worry about prefixes, since we
@@ -82,6 +87,7 @@
   ;;    = find all lengths used, hash whole seq, if not found add and hash
   ;;      prefixes of shorter lengths and add those as well
 
+
   (let ((ts-hash (make-hash-table :test 'equalp))
         (quat-hash (make-hash-table :test 'equalp))
         ;; storing pos and size together for now
@@ -89,19 +95,23 @@
         (next-ts 0)
         (next-quat 0)
         (next-vec 0))
-    (flet ((map-anim-data (tsf qf vf)
-             (map 'nil
-                  (lambda (anim)
-                    (destructuring-bind (qts q pts p sts s) anim
-                      ;; order matters here, since metadata pass
-                      ;; writes them in order called
-                      (funcall tsf qts)
-                      (funcall qf q)
-                      (funcall tsf pts)
-                      (funcall vf p)
-                      (funcall tsf sts)
-                      (funcall vf s)))
-                  anim-data)))
+    (flet ((map-anim-data (tsf qf vf &key post-anim pre-bone)
+             (loop
+               for a in anim-data
+               do (map 'nil
+                       (lambda (anim)
+                         (when pre-bone (funcall pre-bone))
+                         (destructuring-bind (qts q pts p sts s) anim
+                           ;; order matters here, since metadata pass
+                           ;; writes them in order called
+                           (funcall tsf qts)
+                           (funcall qf q)
+                           (funcall tsf pts)
+                           (funcall vf p)
+                           (funcall tsf sts)
+                           (funcall vf s)))
+                       (bone-data a))
+               when post-anim do (funcall post-anim a))))
       ;; find distinct sequences and allocate ranges
       (flet ((ts (x)
                (unless (gethash x ts-hash)
@@ -117,11 +127,16 @@
                        (list next-vec (incf next-vec (length x)))) )))
         (map-anim-data #'ts #'q #'v))
       ;; allocate/fill buffers
-      (destructuring-bind (tsb qb vb mdb) (gl:gen-buffers 4)
+      (destructuring-bind (tsb qb vb mdb adb) (gl:gen-buffers 5)
         (3bgl-mesh::with-static-vectors ((ts-data next-ts :unsigned-short)
                                          (q-data (* 4 next-quat) :signed-short)
                                          (v-data (* 3 next-vec) :float)
-                                         (md-data (* 9 (length anim-data))
+                                         (md-data (* 9
+                                                     (loop for a in anim-data
+                                                           sum (length
+                                                                (bone-data a))))
+                                                  :unsigned-int)
+                                         (ad-data (* 66 (length anim-data))
                                                   :unsigned-int))
           (maphash (lambda (k v)
                      (replace ts-data k
@@ -147,8 +162,11 @@
           (format t "  timestamps = ~s = ~s~%" next-ts (* 2 next-ts))
           (format t "  quaternions = ~s = ~s~%" next-quat (* 4 2 next-quat))
           (format t "  vectors = ~s = ~s~%" next-vec (* 4 3 next-vec))
-          (format t "  metadata = ~s = ~s~%" (length anim-data)
-                  (* 9 4 (length anim-data)))
+          (format t "  metadata = ~s = ~s = ~s~%" (length anim-data)
+                      (loop for a in anim-data
+                            sum (length
+                                 (bone-data a)))
+                  (* 4 (length md-data)))
           (gl:bind-buffer :shader-storage-buffer tsb)
           (%gl:buffer-data :shader-storage-buffer (* 2 next-ts)
                            (static-vectors:static-vector-pointer ts-data)
@@ -163,24 +181,48 @@
                            :static-draw)
           ;; fill metadata buffer
           ;; fixme: this should probably be SoA rather than AoS ordering
-          (let ((i 0))
-            (flet ((ts (x)
-                     (destructuring-bind (s e) (gethash x ts-hash)
-                       (setf (aref md-data i) (- e s))
-                       (incf i)
-                       (setf (aref md-data i) s)
-                       (incf i)))
-                   (q (x)
-                     (destructuring-bind (s e) (gethash x quat-hash)
-                       (declare (ignore e))
-                       (setf (aref md-data i) s)
-                       (incf i)))
-                   (v (x)
-                     (destructuring-bind (s e) (gethash x vec-hash)
-                       (declare (ignore e))
-                       (setf (aref md-data i) s)
-                       (incf i))))
-              (map-anim-data #'ts #'q #'v)))
+          (let ((i 0)
+                (k nil)
+                (ai 0)
+                (bi 0))
+            (labels ((md (x)
+                       (setf (aref md-data i) x)
+                       (incf i))
+                     (ts (x)
+                          (destructuring-bind (s e) (gethash x ts-hash)
+                            (md (- e s))
+                            (md s)))
+                     (q (x)
+                       (destructuring-bind (s e) (gethash x quat-hash)
+                         (declare (ignore e))
+                         (md s)))
+                     (v (x)
+                       (destructuring-bind (s e) (gethash x vec-hash)
+                         (declare (ignore e))
+                         (md s)))
+                     (b ()
+                       (push bi k)
+                       (incf bi))
+                     (ad (x)
+                       (setf (aref ad-data ai) x)
+                       (incf ai))
+                     (a (a)
+                       (ad (length-ms a))
+                       (ad (length k))
+                       (loop with rk = (reverse k)
+                             repeat 64
+                             for x = (pop rk)
+                             do (ad (or x 0)))
+                       (setf k nil)))
+              (map-anim-data #'ts #'q #'v :post-anim #'a :pre-bone #'b)))
+          (format t "anim-data = ~%")
+          (loop for i below (length ad-data) by 66
+                do (format t "~s ~s : ~s~%"
+                           (aref ad-data i)
+                           (aref ad-data (1+ i))
+                           (subseq ad-data (+ 2 i) (+ 66 i))
+                           ))
+
           #++
           (break "md-data" (copy-seq md-data)
                  (copy-seq ts-data)
@@ -189,14 +231,19 @@
                  vec-hash
                  quat-hash)
           (gl:bind-buffer :shader-storage-buffer mdb)
-          (%gl:buffer-data :shader-storage-buffer (* 9 4 (length anim-data))
+          (%gl:buffer-data :shader-storage-buffer (* 4 (length md-data))
                            (static-vectors:static-vector-pointer md-data)
+                           :static-draw)
+          (gl:bind-buffer :shader-storage-buffer adb)
+          (%gl:buffer-data :shader-storage-buffer (* 66 4 (length anim-data))
+                           (static-vectors:static-vector-pointer ad-data)
                            :static-draw)
           (gl:bind-buffer :shader-storage-buffer 0)
           (setf (buffer state :metadata) mdb
                 (buffer state :timestamps) tsb
                 (buffer state :quaternions) qb
                 (buffer state :vectors) vb
+                (buffer state :anims) adb
                 )
           (list :metadata mdb :timestamps tsb :quaternions qb :vectors vb))))))
 
@@ -533,7 +580,7 @@
            (let ((b (buffer state key)))
              (when b(%gl:bind-buffer-base :shader-storage-buffer index b)))))
     (bind 0 :anim-instance)
-    ;; 1 = anims
+    (bind 1 :anims)
     (bind 2 :skeletons)
     (bind 3 :metadata)
     (bind 4 :quaternions)

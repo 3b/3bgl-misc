@@ -267,9 +267,8 @@
                     #++(anim-time (- time-ms (@ anim-instance start-time)))
                     (last (aref (@ instance last-keyframe) bone)))
     (let ((key-data (aref anim-metadata
-                         (+ bone (* instance-id 33))
-                         #+todo
-                         (aref (@ anim keys) bone)))
+                          #++(+ bone (* instance-id 33))
+                          (aref (@ anim keys) bone)))
          (matrix (mat4 1)) ;; identity matrix
          (done 1))
       (when (= (.w last) 1)
@@ -342,10 +341,11 @@
                       (anim (aref anims (@ anim-instance anim)))
                       (skeleton (aref skeletons (@ anim-instance skeleton)))
                       (anim-time (- time-ms (@ anim-instance start-time))))
-      (progn ;when (<= bone (@ anim num-bones))
-        (update-bone bone (if (< time-ms 10000)
+      (when (<= bone (@ anim num-bones))
+        (update-bone bone (if (< time-ms 60000)
                               (float time-ms)
-                              (/ (float (mod time-ms 1000)) 1))
+                              (/ (float (mod time-ms (@ anim length)))
+                                 1))
                      anim-instance-id anim skeleton))
       ;; loop over depth of tree accumulating global transforms
       (let ((parent (aref (@ skeleton parent) bone))

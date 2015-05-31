@@ -186,18 +186,26 @@
       ;; translation -> remove duplicates if within 0.0001 or so
       ;;   (but keep key on each end of range of duplicates if keeping
       ;;    more than 1, so interpolation is correct
-      (sort
-       (loop for channel across (ai:channels anim)
-             for channel-index = (gethash (ai:node-name channel) map)
-             do (assert channel-index)
-             collect (list channel-index
-                           (map 'vector #'ts (ai:rotation-keys channel))
-                           (map 'vector #'qkeys (ai:rotation-keys channel))
-                           (map 'vector #'ts (ai:position-keys channel))
-                           (map 'vector #'vkeys (ai:position-keys channel))
-                           (map 'vector #'ts (ai:scaling-keys channel))
-                           (map 'vector #'vkeys (ai:scaling-keys channel))))
-       '< :key 'car))))
+      (make-instance
+       '3bgl-gpuanim:anim-data
+       :length-ms (floor (ai:duration anim) 1/1000)
+       :anim-rate (ai:ticks-per-second anim)
+       :bone-data
+       (mapcar
+        'cdr
+        (sort
+         (loop for channel across (ai:channels anim)
+               for channel-index = (gethash (ai:node-name channel) map)
+               do (assert channel-index)
+               collect (list channel-index
+                             (map 'vector #'ts (ai:rotation-keys channel))
+                             (map 'vector #'qkeys (ai:rotation-keys channel))
+                             (map 'vector #'ts (ai:position-keys channel))
+                             (map 'vector #'vkeys (ai:position-keys channel))
+                             (map 'vector #'ts (ai:scaling-keys channel))
+                             (map 'vector #'vkeys (ai:scaling-keys channel))))
+         '< :key 'car))))))
+(defparameter *foo* 0)
 (defun load-files (w)
   ;; todo: handle multiple meshes + anim sets at once
   (let ((skeleton-map (make-hash-table :test 'equal)))
@@ -216,20 +224,19 @@
               for anims = (ai:animations scene)
               append (loop
                        for anim across anims
-                       for a = (mapcar 'cdr (translate-ai-anim anim skeleton-map))
+                       for a = (translate-ai-anim anim skeleton-map)
+                       for name = (list (ai:name anim) (pathname-name file))
                        when a
-                         collect (list :index i :anim a
-                                       :length (round (ai:duration anim)
-                                                      1/1000)
-                                       :channels (ai:channels anim)
-                                       :name (list (ai:name anim)
-                                                   (pathname-name file)))
-                         and do (incf i)))))
+                         collect (list :index i :anim a :name name)
+                         and do (incf i)
+                                (setf (3bgl-gpuanim::name a) name)))))
+      (setf *foo* anim-data)
       (3bgl-gpuanim:build-anim-data (loop for i in anim-data
-                                          append (getf i :anim)))
+                                          collect (getf i :anim)))
       ;; create anim instances
       (loop for i below (length *animfiles*)
-            do (3bgl-gpuanim:update-instance-data i)))
+            do (3bgl-gpuanim:update-instance-data i
+                                                  :anim-index i)))
 
     ;; update (num-instances w)
     (setf (num-instances w) (length *animfiles*))))

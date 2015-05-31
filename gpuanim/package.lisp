@@ -5,7 +5,8 @@
   (:export #:build-anim-data
            #:update-instance-data
            #:with-gpu-anim
-           #:update-skeleton))
+           #:update-skeleton
+           #:anim-data))
 
 
 (defpackage #:3bgl-gpuanim-shaders
