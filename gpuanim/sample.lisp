@@ -69,15 +69,7 @@
   (let ((image (tga:read-tga path))
         (tn (car (gl:gen-textures 1))))
     (gl:bind-texture :texture-2d tn)
-    (unless (eql (tga:image-data image) 0)
-     (gl:tex-image-2d :texture-2d 0 :rgba
-                      (tga:image-width image) (tga:image-height image)
-                      0
-                      (ecase (tga:image-channels image)
-                        (1 :luminance)
-                        (3 :bgr)
-                        (4 :bgra))
-                      :unsigned-byte (tga:image-data image)))
+    (tga-gl:tex-image-2d image)
     (gl:generate-mipmap :texture-2d)
     (gl:tex-parameter :texture-2d :texture-mag-filter :linear)
     (gl:tex-parameter :texture-2d :texture-min-filter :linear-mipmap-linear)
