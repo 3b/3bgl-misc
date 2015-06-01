@@ -129,6 +129,11 @@
          (ly (+ 8 (* 16 (sin (/ irt 4444)))))
          (lx (* lr (sin (/ irt 500)))))
     (gl:point-size 5)
+    #++(gl:with-primitive :quads
+      (gl:vertex -10 2 -10)
+      (gl:vertex 10 2 -10)
+      (gl:vertex 10 2 10)
+      (gl:vertex -10 2 10))
     (3bgl-shaders::with-program (p :error-p t)
       (3bgl-gpuanim::bind-anim-buffers)
       (setf (3bgl-shaders::uniform p
@@ -142,7 +147,7 @@
       (loop
         with n = (length (instances w))
         with sn = (ceiling (sqrt n))
-        with space = 4.0
+        with space = 2.0
         for i below n
         for instance in (instances w)
         for x = (float (- (floor i sn) (/ (1- sn) 2.0)))
@@ -157,7 +162,7 @@
                                            1.0)
                                     0.0 0.0)
                     (sb-cga:translate* (* space x) (* space y) 0.0)
-                    (sb-cga:scale* 0.05 0.05 0.05)))
+                    (sb-cga:scale* 0.025 0.025 0.025)))
            (restart-case
                (progn
                  #++
