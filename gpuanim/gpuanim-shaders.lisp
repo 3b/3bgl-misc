@@ -55,11 +55,11 @@
                                       :layout (:r32i t)
                                       :qualifiers (:restrict))
 
-;; ssbo for bones
+;; ssbo for bones (constants hard-coded for now)
 #++(uniform max-bone :int)
 #++(uniform max-bone-models :int)
-(defconstant +max-bones+ 64 :int)
-(defconstant +max-active-anims+ 1024 :int)
+;; (defconstant +max-bones+ 64 :int)
+;;(defconstant +max-active-anims+ 4096 :int)
 
 ;; data for state of a particular running anim
 ;; fixme: add std430 etc to struct options?

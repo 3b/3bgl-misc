@@ -437,7 +437,7 @@
 
 (defun maybe-rebuild-state-buffers (&key (state *gpu-anim-state*)
                                       force
-                                      (max-anim-instances 1024)
+                                      (max-anim-instances 4096)
                                       (max-skeletons 1024)
                                       )
   ;; lots of relatively slow API calls, so probably should only be

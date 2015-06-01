@@ -86,33 +86,33 @@
       (3bgl-opticl:tex-image-2d :texture-2d 9 :rgba
                                 (opticl:read-image-file path))))
 
+(defun load-material (w mat)
+  (unless mat
+    (return-from load-material nil))
+  ;; try to load textures
+  (let ((files (gethash "$tex.file" mat)))
+    (flet ((l (key)
+             (let* ((name (third (assoc key files)))
+                    (path (merge-pathnames name *basedir*)))
+               (multiple-value-bind (tex found) (gethash name (textures w))
+                 (unless found
+                   (if (probe-file path)
+                       (setf (gethash name (textures w))
+                             (load-texture-file path))
+                       (setf (gethash name (textures w)) 0)))
+                 (or tex 0)))))
+      (list (l :ai-texture-type-diffuse)
+            (l :ai-texture-type-normals)
+            (l :ai-texture-type-specular)
+            (l :ai-texture-type-height)))))
+
 (defun bind-material (w mat)
   (flet ((texture (n)
            (+ n #.(cffi:foreign-enum-value '%gl:enum :texture0))))
-    ;; clear textures
-    (unless mat
-      (loop for i from 4 downto 0
-            do (gl:active-texture (texture i))
-               (gl:bind-texture :texture-2d 0))
-      (return-from bind-material nil))
-    ;; try to bind textures
-    (let ((files (gethash "$tex.file" mat)))
-      (flet ((bind (unit key)
-               (gl:active-texture (texture unit))
-               (let* ((name (third (assoc key files)))
-                      (path (merge-pathnames name *basedir*)))
-                 (multiple-value-bind (tex found) (gethash name (textures w))
-                   (unless found
-                     (if (probe-file path)
-                         (setf (gethash name (textures w))
-                               (load-texture-file path))
-                         (setf (gethash name (textures w)) 0)))
-                   (gl:bind-texture :texture-2d (or tex 0))))))
-        (bind 0 :ai-texture-type-diffuse)
-        (bind 1 :ai-texture-type-normals)
-        (bind 2 :ai-texture-type-specular)
-        (bind 3 :ai-texture-type-height))
-      (gl:active-texture (texture 0)))))
+    (loop for i below 3
+          for tex = (pop mat)
+          do (gl:active-texture (texture i))
+             (gl:bind-texture :texture-2d (or tex 0)))))
 
 (defmethod basecode-draw ((w gpuanim-test))
   ;(sleep 0.01)
@@ -358,7 +358,7 @@
        ;; create anim instances
        (setf (instances w)
              (loop
-               for r below 16
+               for r below 64
                append
                (loop for i from (* r (length anim-data))
                      for a in anim-data
@@ -370,7 +370,10 @@
                                                            :skeleton-index skel
                                                            :anim-index anim)
                      collect (list :instance i :meshes vao
-                                   :materials (ai:materials mesh)))))
+                                   :materials (map 'vector
+                                                   (lambda (a)
+                                                     (load-material w a))
+                                                   (ai:materials mesh))))))
        (setf (vaos w) vaos)))
 
 
