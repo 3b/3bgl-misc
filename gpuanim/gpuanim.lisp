@@ -330,13 +330,13 @@
          (size (getf (print (gethash "skeletons[0].maxDepth" vars))
                      :top-level-array-stride))
          (depths (loop with depths = (make-array (length parents)
-                                                 :initial-element 0)
+                                                 :initial-element -1)
                        for i from 1 below (length parents)
                        for p = (aref parents i)
                        do (setf (aref depths i)
                                 (if (array-in-bounds-p depths p)
                                     (1+ (aref depths p))
-                                    0))
+                                    -1))
                        finally (return depths)))
          (max-depth (reduce 'max depths)))
     (assert size)
@@ -354,7 +354,7 @@
         (loop with pp = (cffi:inc-pointer fp (offset "skeletons[0].depth[0]"))
               for i below 64
               for d across depths
-              do (setf (cffi:mem-aref pp :unsigned-int i) d))
+              do (setf (cffi:mem-aref pp :int i) d))
         (loop with pp = (cffi:inc-pointer fp (offset "skeletons[0].parent[0]"))
               for i below 64
               for d across parents

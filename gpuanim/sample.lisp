@@ -242,7 +242,7 @@
                              name-map)
   (let* ((nodes (flatten-skeleton (ai:root-node scene)
                                   :top include-children-of))
-         (parents (make-array (length nodes)))
+         (parents (make-array (length nodes) :initial-element -1))
          #++(positions (make-array (length nodes)))
          #++(orientations (make-array (length nodes)))
          (local-matrices (make-array (length nodes)))

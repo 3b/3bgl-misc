@@ -93,7 +93,8 @@
   ;;  looks up offsets?)
   ;; fixme: fix dependencies on constants in array size, and use a constant
   (max-depth :uint) ;; max depth of hierarchy
-  (depth (:uint 64)) ;; depth of bone in hierarchy (for parallel updates)
+  ;; -1 depth = no hierarchy update (unused bone or root)
+  (depth (:int 64)) ;; depth of bone in hierarchy (for parallel updates)
   (parent (:int 64)) ;; -1 = none? or point to itself?
   ;; default local transform to use when bone has no animation keyframes
   (local-matrix (:mat4 64))
@@ -163,6 +164,7 @@
   ;; todo: try http://www.euclideanspace.com/maths/geometry/rotations/conversions/quaternionToMatrix/jay.htm ?
 
   ;; todo: benchmark various versions and see which is faster
+  ;; (not enough difference to see with rest of shader running at least)
   #++
   (let ((qq (* q q))
         (ab (* 2 (.x q) (.y q)))
@@ -272,22 +274,22 @@
                           (aref (@ anim keys) bone)))
          (matrix (mat4 1)) ;; identity matrix
          (done 1))
+        ;; todo: get rid of this once times actually match anim state
+      (when (< time 50)
+          (setf last (ivec4 0)))
       (when (= (.w last) 1)
-       (return 1))
+        (return 1)
+        )
       ;; fixme: decide if this is correct order, or if we need to be
       ;; able to reorder them?
       ;; translation
-;    ...
-;    todo:use local-matrix as default instead of bone-position/bone-orientation
-;    ...
 
+      ;; todo: use local-matrix as default instead of
+      ;; bone-position/bone-orientation
       (let* ((position (vec3 0) #++(aref (@ skel bone-positions) bone))
              (orientation (vec4 1 0 0 0)
                           #++(aref (@ skel bone-orientations) bone)))
         timestamps
-        ;; todo: get rid of this once times actually match anim state
-        (progn ;when (< time 0.1)
-          (setf last (ivec4 0)))
         (unless (= 0 bone) ;; 0 is position, so skip it to run/walk in place
           (let* ((c (@ key-data pos-count))
                  (timestamps-offset (@ key-data pos-timestamp-offset))
@@ -341,8 +343,10 @@
     (symbol-macrolet ((anim-instance (aref anim-instances anim-instance-id))
                       (anim (aref anims (@ anim-instance anim)))
                       (skeleton (aref skeletons (@ anim-instance skeleton)))
-                      (anim-time (- time-ms (@ anim-instance start-time))))
-      (when (<= bone (@ anim num-bones))
+                      (anim-time (- time-ms (@ anim-instance start-time)))
+                      (valid-bone (<= bone (@ anim num-bones))))
+      time-ms
+      (when valid-bone
         (update-bone bone (if (< time-ms 60000)
                               (float time-ms)
                               (/ (float (mod (+ time-ms
@@ -352,28 +356,31 @@
                      anim-instance-id anim skeleton))
       ;; loop over depth of tree accumulating global transforms
       (let ((parent (aref (@ skeleton parent) bone))
-            (depth (aref (@ skeleton depth) bone)))
+            (depth (aref (@ skeleton depth) bone))
+            (bmat (if valid-bone
+                      (aref (@ anim-instance matrices) bone)
+                      (mat4 1))))
         ;; fixme: figure out better max value?
         ;; have some skeletons with depth 11 or so, need to look at more
         ;; (or maybe just go up to 64?)
         ;; not sure if (@ skeleton max-depth) is "uniform flow control" or not
 
-        (dotimes (i 16 #++(min 16 (1+ (@ skeleton max-depth))))
+        (dotimes (i (min 64 (+ 1 (@ skeleton max-depth))))
           (barrier)
-                                        ;(group-memory-barrier)
-                                        ;(memory-barrier-buffer)
-          (when (and (= i depth)
-                     ;; we can't skip outer loop, size we need to
-                     ;; hit the (barrier) in every thread
-                     (>= parent 0))
+          ;; assuming depth is <0 (or #xffffffff or whatever) for root
+          ;; and unused bones, so (= i depth) will only be true for
+          ;; bones that need an update
+          (when (= i depth)
+            (setf bmat (* (aref (@ anim-instance matrices) parent)
+                          bmat))
             (setf (aref (@ anim-instance matrices) bone)
-                  (* (aref (@ anim-instance matrices) parent)
-                     (aref (@ anim-instance matrices) bone)))))
+                  bmat)))
         (barrier)
-        (unless skip-inv-bind-matrix
-          (setf (aref (@ anim-instance matrices) bone)
-                (* (aref (@ anim-instance matrices) bone)
-                   (aref (@ skeleton inverse-bind-matrix) bone))))))))
+        (when valid-bone
+         (unless skip-inv-bind-matrix
+           (setf (aref (@ anim-instance matrices) bone)
+                 (* bmat
+                    (aref (@ skeleton inverse-bind-matrix) bone)))))))))
 
 
 (uniform draw-skel-anim-index :int) ;; index in -anim-instances
