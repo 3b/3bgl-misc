@@ -66,6 +66,9 @@
     :serial t
     :components ((:file "shader-helper")
                  (:file "program-interface-query")))
+   (:module "timing"
+    :serial t
+    :components ((:file "timing-helper")))
    #+unix
    (:module "xembed"
     :serial t
