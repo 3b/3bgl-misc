@@ -2,6 +2,7 @@
   (:use :cl :basecode))
 (in-package #:gpuanim-test)
 (defclass gpuanim-test (basecode-glop perspective-projection basecode-clear
+                        basecode-timing-helper::basecode-timing-helper
                         fps-graph basecode-draw-ground-plane
                         freelook-camera
                         basecode-exit-on-esc
@@ -113,13 +114,21 @@
           for tex = (pop mat)
           do (gl:active-texture (texture i))
              (gl:bind-texture :texture-2d (or tex 0)))))
+(defparameter *meshes* 0) ;; 8128 @ 3840
+(defparameter *primitives* 0) ;; 6619904 @ 3840
+;(/ 8128 3840.0)2.1166666
+;(/ 6619904 3840.0)1723.9333
 
 (defmethod basecode-draw ((w gpuanim-test))
-  ;(sleep 0.01)
+  ;; (sleep 0.1)
+  (sleep 0.01)
+  (setf *meshes* 0 *primitives* 0)
   (gl:enable :depth-test)
   (setf (basecode::clear-color w) (list 0.2 0.25 0.4 1.0))
   (setf *w* w)
-  (3bgl-gpuanim::update-anim-state (length (instances w)))
+  (basecode-timing-helper::mark w)
+  (3bgl-gpuanim::update-anim-state (floor (length (instances w)) 1))
+  (basecode-timing-helper::mark w)
   (let* ((p (program w :draw-anim))
          (lr 8)
          (irt ;12000
@@ -189,10 +198,14 @@
                        for i below 4
                        for mat = (pop mats)
                        do (bind-material w mat)
+                          (incf *meshes*)
+                          (incf *primitives* (floor (3bgl-mesh::element-count m)
+                                                   3))
                           (3bgl-mesh::draw m)))
              (clear-tex () :report "clear mesh"
-               (setf (instances w) nil)))))))
-
+               (setf (instances w) nil))))
+      (basecode-timing-helper::mark w)
+      (basecode-timing-helper::mark w :mode :total))))
 
 (defmethod basecode-shader-helper::shader-recompiled ((w gpuanim-test) sp)
   (format t "~s modified~%" sp)
