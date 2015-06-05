@@ -275,7 +275,7 @@
          (matrix (mat4 1)) ;; identity matrix
          (done 1))
         ;; todo: get rid of this once times actually match anim state
-      (when (< time 50)
+      (when (< time 100)
           (setf last (ivec4 0)))
       (when (= (.w last) 1)
         (return 1)

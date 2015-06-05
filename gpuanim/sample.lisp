@@ -30,7 +30,44 @@
                 (search "snake_woman" (namestring p))
                 ;; no interesting anims?
                 (search "cannon" (namestring p)))
-          collect (list p a)))
+          collect (list p
+                        (remove-if (lambda (a) (search "tpose" (namestring a)))
+                                   a))))
+
+(defparameter *texture-name-map*
+  ;; arxeos md5mesh files have bad texture names (presumably there are
+  ;; material files somewhere with correct textures), so remap them by hand
+  (flet ((prefix (prefix replacement)
+           (lambda (a)
+             (multiple-value-bind (match suf)
+                 (alexandria:starts-with-subseq prefix a :return-suffix t)
+               (when match
+                 (format nil "~a~a" replacement suf)))))
+         )
+    (list (prefix "models/md5/creatures/farmyard_"
+                  "models/md5/creatures/farmyard_chicken/farmyard_")
+          (prefix "models/monsters/goblins_general_"
+                  "models/monsters/goblins_general/goblin_")
+          (prefix "models/monsters/rat/standard"
+                  "models/monsters/rat/standard/monster_rat")
+          (cons "textures/arx/dev/generic_placeholder_d.tga"
+                  "textures/arx/dev/Placeholder2.tga")
+          (cons "textures/arx/dev/generic_placeholder_s.tga"
+                "textures/arx/dev/Placeholder2_s.tga")
+          (cons "textures/arx/dev/generic_placeholder_local.tga"
+                  "textures/arx/dev/Placeholder2_l.tga")
+          (cons "models/monsters/zombie/zombie_spitter_local.tga"
+                "models/monsters/zombie/zombie_local.tga"))))
+(defun remap-texture-name (n)
+  (loop for f in *texture-name-map*
+        when (and (functionp f)
+                  (funcall f n))
+          return it
+        when (and (consp f)
+                  (string-equal n (car f))
+                  (cdr f))
+          return it
+        finally (return n)))
 
 #++
 (defparameter *meshfile* #P"d:/temp/models/arxeos/models/md5/characters/npcs/knight/knight.md5mesh")
@@ -93,7 +130,7 @@
   ;; try to load textures
   (let ((files (gethash "$tex.file" mat)))
     (flet ((l (key)
-             (let* ((name (third (assoc key files)))
+             (let* ((name (remap-texture-name (third (assoc key files))))
                     (path (merge-pathnames name *basedir*)))
                (multiple-value-bind (tex found) (gethash name (textures w))
                  (unless found
@@ -105,7 +142,7 @@
       (list (l :ai-texture-type-diffuse)
             (l :ai-texture-type-normals)
             (l :ai-texture-type-specular)
-            (l :ai-texture-type-height)))))
+            #++(l :ai-texture-type-height)))))
 
 (defun bind-material (w mat)
   (flet ((texture (n)
@@ -155,11 +192,11 @@
             (list lx ly lz 1.0))
       (loop
         with n = (length (instances w))
-        with sn = (ceiling (sqrt n))
+        with sn = (ceiling (* 7/16 (sqrt n)))
         with space = 2.0
         for i below n
         for instance in (instances w)
-        for x = (float (- (floor i sn) (/ (1- sn) 2.0)))
+        for x = (float (- (floor i sn) (/ (/ n (1- sn)) 2.0)))
         for y = (float (- (mod i sn)  (/ (1- sn) 2.0)))
         do
            (setf (3bgl-shaders::uniform p
@@ -333,7 +370,8 @@
 (defparameter *foo* 0)
 (defun load-files (w)
   (setf (instances w) nil)
-  #++(when (plusp (hash-table-count (textures w)))
+  #++
+  (when (plusp (hash-table-count (textures w)))
        (gl:delete-textures (alexandria:hash-table-values (textures w)))
        (clrhash (textures w)))
   (when (vaos w)
@@ -376,7 +414,7 @@
        ;; create anim instances
        (setf (instances w)
              (loop
-               for r below 64
+               for r below 76
                append
                (loop for i from (* r (length anim-data))
                      for a in anim-data
