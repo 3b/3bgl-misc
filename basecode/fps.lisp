@@ -18,11 +18,14 @@
 (defun now ()
   ;; single float runs out of precision, so use doubles here and cast to single
   ;; if needed after calculating a delta or whatever
-  #+(and sbcl (not win32))
-  (multiple-value-bind (s us) (sb-ext:get-time-of-day)
-     (+ s (* us 1d-6)))
-  #+(not (and sbcl (not win32)))
-  (float (/ (get-internal-real-time) internal-time-units-per-second) 1d0))
+  ;;#+(and sbcl (not win32))
+  ;;(multiple-value-bind (s us) (sb-ext:get-time-of-day)
+  ;;   (+ s (* us 1d-6)))
+  ;;#+(not (and sbcl (not win32)))
+  ;;(float (/ (get-internal-real-time) internal-time-units-per-second) 1d0)
+  ;; just use gl timestamp for now, gl3.2+
+  (/ (gl:get* :timestamp)
+     1000000000d0))
 
 (defmethod basecode-draw :around ((w fps-graph))
   (let ((start (now)))
