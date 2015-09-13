@@ -290,7 +290,7 @@
              (orientation (vec4 1 0 0 0)
                           #++(aref (@ skel bone-orientations) bone)))
         timestamps
-        (unless (= 0 bone) ;; 0 is position, so skip it to run/walk in place
+        (progn ;unless (= 0 bone) ;; 0 is position, so skip it to run/walk in place
           (let* ((c (@ key-data pos-count))
                  (timestamps-offset (@ key-data pos-timestamp-offset))
                  (keys-offset (@ key-data pos-offset))
@@ -424,17 +424,16 @@
 (defun draw-anim-vs ()
   (declare (values))
   light-pos bone-weights bone-indices
-  (let* ((xn (normalize (* (mat3 normal-matrix) normal)))
-         (xt (normalize (* (mat3 normal-matrix) tangent)))
-         #++(xb (normalize (* (cross xn xt) (vec3 (.z uv)))))
-         (xb (normalize (* (mat3 normal-matrix) bitangent)))
-         (bone-position
-           #++(* (read-bone-a (.x bone-indices)) position)
-
-           (+ (* (.x bone-weights) (* (read-bone-a (.x bone-indices)) position))
-              (* (.y bone-weights) (* (read-bone-a (.y bone-indices)) position))
-              (* (.z bone-weights) (* (read-bone-a (.z bone-indices)) position))
-              (* (.w bone-weights) (* (read-bone-a (.w bone-indices)) position)))))
+  (let* ((bone-mat (+ (* (.x bone-weights) (read-bone-a (.x bone-indices)))
+                      (* (.y bone-weights) (read-bone-a (.y bone-indices)))
+                      (* (.z bone-weights) (read-bone-a (.z bone-indices)))
+                      (* (.w bone-weights) (read-bone-a (.w bone-indices)))))
+         (bone-mat-n (* (mat3 normal-matrix) (mat3 bone-mat)))
+         (xn (normalize (* bone-mat-n normal)))
+         (xt (normalize (* bone-mat-n tangent)))
+         (xb (normalize (* (cross xn xt) (vec3 (.z uv)))))
+         #+= (xb (normalize (* (mat3 normal-matrix) bitangent)))
+         (bone-position (* bone-mat position)))
     (setf gl-position (* mvp bone-position))
     ;(setf gl-position (* mvp position))
 
@@ -463,13 +462,15 @@
 (defun draw-anim-fs ()
   (declare (values))
   normal-tex light-pos
+  specular-tex
   (let* ((uv (vec2 (@ ins uv)))
          (dtex #++(vec4 1 1 1 1)
                (texture-2d diffuse-tex uv))
-         (stex #++(vec4 1 1 1 1)
-               (texture-2d specular-tex uv))
-         (ntex (normalize (- (* 2.0 (.rgb (texture-2d normal-tex uv)))
-                             1.0)))
+         (stex (vec4 1 1 1 1)
+               #++(texture-2d specular-tex uv))
+         (ntex (vec3 0 0 1)
+               #++(normalize (- (* 2.0 (.rgb (texture-2d normal-tex uv)))
+                                  1.0)))
          (distance (length (@ ins light-direction)))
          (one-over-d-squared (/ (* distance distance)))
          (tangent-space
@@ -481,7 +482,7 @@
             #++(normalize (@ ins normal)))
          (l (normalize (* tangent-space (@ ins light-direction))))
          #++(l (normalize (@ ins light-direction)))
-         (e (normalize (@ ins eye-direction))
+         (e (normalize (* tangent-space (@ ins eye-direction)))
             #++(normalize (* tangent-space (@ ins eye-direction))))
          (r (reflect l n))
          (cos-theta (clamp (dot n l) 0.0 1.0))
@@ -491,29 +492,32 @@
          (spec-back-falloff (smooth-step -0.8 0.0 (dot (- e) l))))
 
     (setf color
-          (vec4
-           #++(* tangent-space (vec3 0 0 1))
-           #++(.xyz ntex)
-           #++(vec3 (* 0.2 (length (.xyz (@ ins eye-direction)))))
-           #++(vec3 cos-theta)
-           #++(vec3 (if (< distance 1) 1 0))
-           #++(+ 0.5 (/ (.yyy l) 2))
-           #++(vec3 (- spec-back-falloff 0.9))
-           #++(vec3 (* 8 one-over-d-squared))
-           #++(* 0.1 (vec3 distance))
-           #++(vec3 (@ ins bitangent))
-           #++(.xyz  (@ ins color))
-           (+ (* spec-back-falloff
-                 (.xyz dtex) cos-theta
-                 ;; 32 one-over-d-squared
-                 ;; fixme: uniforms for light colors...
-                 (vec3 1 1 1))
-              #++(* (.xyz dtex) (clamp (dot n e) 0 1))
-              (* (.xyz dtex) 0.1) ;; ambient
-              0
-              (* spec-back-falloff
-                 (* (.xyz stex)
+          #++(vec4 (normalize (@ ins normal)) 1)
+          #++(vec4 e 1)
+          (vec4 #++(* tangent-space (vec3 0 0 1)
+                   )
+                
+                #++(.xyz ntex)
+                #++(vec3 (* 0.2 (length (.xyz (@ ins eye-direction)))))
+                #++(vec3 cos-theta)
+                #++(vec3 (if (< distance 1) 1 0))
+                #++(+ 0.5 (/ (.yyy l) 2))
+                #++(vec3 (- spec-back-falloff 0.9))
+                #++(vec3 (* 8 one-over-d-squared))
+                #++(* 0.1 (vec3 distance))
+                #++(vec3 (@ ins bitangent))
+                #++(.xyz  (@ ins color))
+                (+ (* spec-back-falloff
+                      (.xyz dtex) cos-theta
+                      ;; 32 one-over-d-squared
+                      ;; fixme: uniforms for light colors...
+                      (vec3 1 1 1))
+                   #++(* (.xyz dtex) (clamp (dot n e) 0 1))
+                   (* (.xyz dtex) 0.1) ;; ambient
+                   0
+                   (* spec-back-falloff
+                      (* (.xyz stex)
                                         ;(vec3 0.8 0.3 0.8) ; light color
                                         ;5.0 one-over-d-squared
-                    (pow cos-alpha (* 16.0 (.a stex))))))
-           1.0))))
+                         (pow cos-alpha (* 16.0 (.a stex))))))
+                1.0))))
