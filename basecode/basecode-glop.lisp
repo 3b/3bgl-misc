@@ -62,17 +62,20 @@
           (slot-value bw '%aspect) (float (/ width height) 1.0))
     (with-continue-restart (basecode-reshape bw))))
 
+
 (defmethod glop:on-event ((w %basecode-glop-window)
                           (event glop:key-press-event))
   (declare (optimize debug))
-  (let ((key (glop:keysym event)))
+  (let ((key (glop:keysym event))
+        (*%key-extra* event))
     (unless (shiftf (gethash key (key-state (%basecode-window w))) t)
       (with-continue-restart (key-down (%basecode-window w) key)))))
 
 (defmethod glop:on-event ((w %basecode-glop-window)
                           (event glop:key-release-event))
   (declare (optimize debug))
-  (let ((key (glop:keysym event)))
+  (let ((key (glop:keysym event))
+        (*%key-extra* event))
     (setf (gethash key (key-state (%basecode-window w))) nil)
     (with-continue-restart (key-up (%basecode-window w) key))))
 
@@ -118,7 +121,6 @@
                           (event glop:visibility-obscured-event))
   ;; fixme: possibly should pass this on so apps can pause when hidden?
   (declare (optimize debug) (ignore w event)))
-
 
 (defmethod glop:on-event ((w %basecode-glop-window)
                           (event glop:visibility-unobscured-event))

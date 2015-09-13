@@ -63,6 +63,7 @@
 ;;; have to check multiple possible names for a given key
 ;;; (ex: #\x vs :x or :key-up vs :up)
 ;; fixme: should these be named basecode-* ?
+(defparameter *%key-extra* nil) ;; backend specific extra key details
 (defgeneric key-down (w key)
   (:method (w key)))
 (defgeneric key-up (w key)
