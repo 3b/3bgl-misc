@@ -18,7 +18,10 @@
    (height :reader height :initarg :height)
    (x-pos :reader x-pos :initarg :x)
    (y-pos :reader y-pos :initarg :y)
+   (fullscreen :reader fullscreen :initarg :fullscreen :initform nil)
    (mode :initarg :mode)
+   (swap-buffers :initform t :initarg :swap-buffers
+                 :accessor swap-buffers)
    )
   (:default-initargs :width 640 :height 480 :title "..."
                      :x 0 :y 0
@@ -195,7 +198,9 @@
     (glop:with-window (gw (title bw) (width bw) (height bw)
                           :x (x-pos bw) :y (y-pos bw)
                           :win-class '%basecode-glop-window
-                          :depth-size 16)
+                          :depth-size 16
+                          :fullscreen (fullscreen bw)
+                          )
      (setf (%basecode-window gw) bw)
      (setf (%glop-window bw) gw)
      (setf (slot-value bw '%exit-main-loop) nil)
@@ -207,14 +212,17 @@
   (setf (slot-value w '%exit-main-loop) t))
 
 (defmethod run-main-loop ((w basecode-glop))
-  (declare (optimize debug))
+  (declare (optimize debug)
+           (notinline glop:swap-buffers))
   (loop
     until (slot-value w '%exit-main-loop)
     while (glop:dispatch-events (%glop-window w) :blocking nil :on-foo nil)
     do
        (with-continue-restart
          (basecode-draw w))
-       (glop:swap-buffers (%glop-window w))))
+       (when (swap-buffers w)
+         (glop:swap-buffers (%glop-window w)))))
+
 (defmethod run-nested-loop ((w basecode-glop) lock-and-var)
   (declare (optimize debug))
   (loop
