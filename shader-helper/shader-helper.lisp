@@ -73,9 +73,7 @@
               (3bgl-shaders::stages p)))
     (loop for f in modified
           do (loop for p in (gethash f more-programs-map)
-                   do (3bgl-shaders::flag-shader p f))))
-
-)
+                   do (3bgl-shaders::flag-shader p f)))))
 
 
 (defmethod basecode-draw :around ((w basecode-shader-helper))
