@@ -127,6 +127,18 @@
   ;; fixme: possibly should pass this on so apps can pause when hidden?
   (declare (optimize debug) (ignore w event)))
 
+(defmethod glop:on-event ((w %basecode-glop-window)
+                          (event glop:focus-out-event))
+  ;; probably should have a basecode event so things like mouselook
+  ;; can update state? (or else they should look at key-state instead
+  ;; of watching press/release events?
+  (declare (optimize debug) (ignore w event))
+  (clrhash (key-state (%basecode-window w))))
+
+(defmethod glop:on-event ((w %basecode-glop-window)
+                          (event glop:focus-in-event))
+  (declare (optimize debug) (ignore w event)))
+
 (defgeneric basecode-child-mapped (w child)
   (:method (w c)))
 
