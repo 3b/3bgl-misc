@@ -572,6 +572,112 @@
                     :index-type (if short :unsigned-short :unsigned-int)
                     :index-size (if short 2 4))))))))
 
+
+(defun %calculate-tangent-space (indices vertices uv normals
+                                 tangents bitangents)
+  (declare (notinline sb-cga:normalize))
+  ;; indices = triples of indices of verts of triangles
+  ;; vertices, uv, normals, tangents, bitangents = vectors of floats
+  ;; vert = 4/element, rest are 3/element
+  ;; calculated tangent space will be stores in TANGENTS, BITANGENTS
+  ;; (if bitangent is nil, 3rd element of UV will be modified with sign
+  ;;  of tangent space)
+  (assert (= (/ (length vertices) 3)
+             (/ (length uv) 3)
+             (/ (length normals) 3)
+             (/ (length tangents) 3)))
+  (assert (zerop (mod (length indices) 3)))
+  (let ((accum1 (make-array (/ (length vertices) 3)))
+        (accum2 (make-array (/ (length vertices) 3))))
+    (loop for i below (/ (length vertices) 3)
+          do (setf (aref accum1 i) (sb-cga:vec 0.0 0.0 0.0))
+             (setf (aref accum2 i) (sb-cga:vec 0.0 0.0 0.0)))
+    (flet ((map-tris (thunk)
+             (loop for i below (/ (length indices) 3)
+                   do (funcall thunk
+                               (aref indices (+ 0 (* i 3)))
+                               (aref indices (+ 1 (* i 3)))
+                               (aref indices (+ 2 (* i 3))))))
+           (v (x)
+             (sb-cga:vec (aref vertices (+ 0 (* x 3)))
+                         (aref vertices (+ 1 (* x 3)))
+                         (aref vertices (+ 2 (* x 3)))))
+           (uv (x)
+             (sb-cga:vec (aref uv (+ 0 (* x 3)))
+                         (aref uv (+ 1 (* x 3)))
+                         (aref uv (+ 2 (* x 3)))))
+           (n (x)
+             (sb-cga:vec (aref normals (+ 0 (* x 3)))
+                         (aref normals (+ 1 (* x 3)))
+                         (aref normals (+ 2 (* x 3)))))
+           (x (v) (aref v 0))
+           (y (v) (aref v 1))
+           (z (v) (aref v 2))
+           (setv (a i v)
+             (setf (aref a (+ 0 (* i 3))) (aref v 0))
+             (setf (aref a (+ 1 (* i 3))) (aref v 1))
+             (setf (aref a (+ 2 (* i 3))) (aref v 2)))
+           (%normalize (x)
+             (if (zerop (sb-cga:vec-length x))
+                 x
+                 (sb-cga:normalize x))))
+      (map-tris
+       (lambda (a b c)
+         (let* ((v0 (v a))
+                (v1 (v b))
+                (v2 (v c))
+                (uv0 (uv a))
+                (uv1 (uv b))
+                (uv2 (uv c))
+                (x1 (- (x v1) (x v0)))
+                (x2 (- (x v2) (x v0)))
+                (y1 (- (y v1) (y v0)))
+                (y2 (- (y v2) (y v0)))
+                (z1 (- (z v1) (z v0)))
+                (z2 (- (z v2) (z v0)))
+                (s1 (- (x uv1) (x uv0)))
+                (s2 (- (x uv2) (x uv0)))
+                (t1 (- (y uv1) (y uv0)))
+                (t2 (- (y uv2) (y uv0)))
+                (/r (- (* s1 t2) (* s2 t1)))
+                (r (if (zerop /r) 1.0 (/ /r)))
+                (sdir (sb-cga:vec* (sb-cga:vec (- (* t2 x1) (* t1 x2))
+                                               (- (* t2 y1) (* t1 y2))
+                                               (- (* t2 z1) (* t1 z2)))
+                                   r))
+                (tdir (sb-cga:vec* (sb-cga:vec (- (* s1 x2) (* s2 x1))
+                                               (- (* s1 y2) (* s2 y1))
+                                               (- (* s1 z2) (* s2 z1)))
+                                   r)))
+           (setf (aref accum1 a) (sb-cga:vec+ (aref accum1 a) sdir))
+           (setf (aref accum1 b) (sb-cga:vec+ (aref accum1 b) sdir))
+           (setf (aref accum1 c) (sb-cga:vec+ (aref accum1 c) sdir))
+           (setf (aref accum2 a) (sb-cga:vec+ (aref accum1 a) tdir))
+           (setf (aref accum2 b) (sb-cga:vec+ (aref accum1 b) tdir))
+           (setf (aref accum2 c) (sb-cga:vec+ (aref accum1 c) tdir)))))
+      (loop for i below (length accum1)
+            for n = (n i)
+            for t1 across accum1
+            for t2 across accum2
+            for tan1 = (%normalize
+                        (sb-cga:vec-
+                         t1
+                         (sb-cga:vec* n (sb-cga:dot-product n t1))))
+            for tan2 = (if bitangents
+                           (%normalize
+                            (sb-cga:vec-
+                             t2
+                             (sb-cga:vec* n (sb-cga:dot-product n t2)))))
+
+            do (setv tangents i tan1)
+               (if bitangents
+                   (setv bitangents i tan2)
+                   (setf (aref uv (+ 2 (* i 3)))
+                         (if (minusp (sb-cga:dot-product
+                                      (sb-cga:cross-product n t1)
+                                      t2))
+                             -1.0
+                             1.0)))))))
 (defun ai-mesh-1 (mesh bone-map)
   (assert (= 4 (ai:primitive-types mesh))) ;; must be triangulated
   (let* ((vcount (length (ai:vertices mesh)))
@@ -640,7 +746,7 @@
               do (loop for i below 3
                        do (setf (aref indices (+ i (* iindex 3)))
                                 (aref face i))))
-        (when non-orthogonal-bitangents
+       #++(when non-orthogonal-bitangents
           (warn "non-orthogonal-bitangents")
           #++(with-simple-restart (continue "continue1")
             (error "non-orthogonal bitangents in input?"

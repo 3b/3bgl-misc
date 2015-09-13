@@ -3,7 +3,7 @@
 ;; convenience util for building a mesh
 ;; locally binds functions for adding vertex components, returns a MESH object
 
-(defmacro with-mesh-builder ((vertex-count indices)
+(defmacro with-mesh-builder ((vertex-count indices &key calculate-tangents)
                              &body body)
   ;; todo: make vertex-count optional
   (alexandria:with-gensyms (verts uvs normals tangents
@@ -76,6 +76,9 @@
                      for n from 0
                      do (setf (aref ,sv-indices n) i))
                (replace ,sv-indices ,indices)
+               ,@(when calculate-tangents
+                 `((%calculate-tangent-space ,indices ,verts ,uvs ,normals
+                                             ,tangents nil)))
                (%make-mesh ,sv-indices
                            ,verts ,uvs ,normals ,tangents
                            ,bone-weights ,bone-indices
