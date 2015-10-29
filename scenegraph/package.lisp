@@ -1,0 +1,2 @@
+(defpackage #:scenegraph
+  (:use :cl))

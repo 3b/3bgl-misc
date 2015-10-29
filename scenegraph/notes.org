@@ -1,0 +1,338 @@
+* refs
+  http://on-demand.gputechconf.com/gtc/2013/presentations/S3032-Advanced-Scenegraph-Rendering-Pipeline.pdf
+  https://devtalk.nvidia.com/default/topic/777618/announcing-nvpro-pipeline-a-research-rendering-pipeline/
+  https://github.com/nvpro-pipeline/pipeline
+  https://github.com/vahlers/scg3
+  http://cg.alexandra.dk/?p=3778
+  http://on-demand.gputechconf.com/siggraph/2014/presentation/SG4117-OpenGL-Scene-Rendering-Techniques.pdf
+  http://on-demand.gputechconf.com/siggraph/2015/presentation/SIG1512-Tristan-Lorach.pdf
+  http://www.slideshare.net/Mark_Kilgard/opengl-for-2015-52329356?related=1
+  http://www.slideshare.net/repii/the-rendering-pipeline-challenges-next-steps
+** deferred/inferred lighting stuff
+   http://www.students.science.uu.nl/~3220516/advancedgraphics/papers/inferred_lighting.pdf
+   http://www.marries.nl/wp-content/uploads/2013/05/Hybrid-Deferred-Rendering.pdf
+   http://www.cse.chalmers.se/~uffe/tiled_shading_preprint.pdf
+   http://twvideo01.ubm-us.net/o1/vault/gdc2012/slides/Programming%20Track/Kircher_Lighting_and_Simplifying_Saints_Row_The_Third.pdf
+   https://www.uni-weimar.de/fileadmin/user/fak/medien/professuren/Virtual_Reality/documents/publications/2014.guacamole.pdf
+** shadow mapping
+   http://cg.cs.uni-bonn.de/en/publications/paper-details/peters-2015-msm/
+** lightfield
+   http://groups.csail.mit.edu/netmit/LFSparseRecon/files/a12-shi.pdf
+   http://arxiv.org/pdf/1509.08969.pdf
+   'compressed sensing'/'compressive sensing'?
+** clouds/sky
+   http://advances.realtimerendering.com/s2015/The%20Real-time%20Volumetric%20Cloudscapes%20of%20Horizon%20-%20Zero%20Dawn%20-%20ARTR.pdf
+** animation/ai
+   http://www.chrisoat.com/papers/Oat-Tatarchuk-Froblins-Siggraph2008.pdf
+** misc libs
+   http://alice.loria.fr/index.php/software/4-library/23-opennl.html
+* tech
+** VAB / ARB_vertex_attrib_binding
+   4.3
+   http://www.g-truc.net/doc/OpenGL%204.3%20review.pdf#page=8&zoom=auto,-13,413
+** texture arrays
+   3.0
+** immutable textures/ ARB_texture_storage
+   4.2
+** persistent mapped buffers / ARB_buffer_storage
+   4.4
+   MAP_PERSISTENT/MAP_COHERENT
+   http://developer.amd.com/community/blog/2014/07/09/low-overhead-opengl/
+   FenceSync, ClientWaitSync
+   https://developer.nvidia.com/content/how-modern-opengl-can-radically-reduce-driver-overhead-0
+** ARB_sparse_textures
+   4.4?
+** bindless
+   4.5?
+** arb_multi_bind ?
+   4.4?
+** bindless UBO
+   ?
+   http://on-demand.gputechconf.com/siggraph/2015/presentation/SIG1512-Tristan-Lorach.pdf
+* scenegraph data
+** meshes
+** skeletons
+** animations
+** states
+** textures
+*** built-in
+    white, checkerboard, UVs, ?
+*** file/stream
+*** memory (possibly handle as stream)?
+*** rendered from camera
+**** render an alternate view
+**** render alternate scene
+** scenegraph
+   might want multiple scene graphs active at once, for example one
+   for the world, and another for HUD(s), or when using portals betwen
+   levels (or just separate areas within a level, instead of having to
+   cull things that aren't connected)
+*** node
+    not sure if this has anything beyond a list/hash of properties?
+    (not sure if NAME is included in property list or separate?)
+**** geometry
+     ref to a single mesh (probably not worth having multiple meshes,
+     since usually if there are multiple parts they will be broken up
+     by material so need different properties anyway)
+**** instance/geometry ref/group ref
+     not sure if we need a separate 'instance' node type, or if we can just
+     reuse the actual geometry/group object multiple places?
+
+     would allow overriding properties, but probably most of them are
+     fairly static
+
+     probably need it for things like animation state though
+**** camera
+     fov, near/far, etc?
+     (will probably be overridden if used as main view, particularly for VR)
+**** group
+     adds a list of NODE children
+***** transform
+      adds a transform matrix (not sure if this should be separate or
+      if all groups should have a transform and optimize for the
+      identity matrix special case?)
+***** skinned mesh
+      adds ref to a skeleton (and animations?)
+
+      handles named attachments to skeletons
+      (acts like it had TRANSFORM children for each (named) bone?)
+
+      possibly also option to toggle some child meshes, or select
+      from a set of configurations of child mesh visibility (for example
+      different clothing options, armor, etc?
+
+      possibly just swap out the child meshes all at once to change sets?
+      might be more complicated interaction with scenetree/render caches
+      than toggling a visibilty flag? though scenetree/cache might want to
+      add/remove them when visibility changes anyway
+**** portal?
+     link to (possibly different) scene graph with offset transform
+     and simple planar (convex?) polygon geometry (possibly
+     quadrilateral so frustum culling code can be reused? probably not
+     too hard to generalize to a few extra planes though, and something
+     like an octagon would cull better for a circular portal)
+
+     effectively instances entire referenced scenegraph with transform
+     and special culling
+***** possibly also would be nice to have volumetric portals?
+      ex. show scaled down scene in a box/globe/whatever
+***** could also be nice to be able to override shaders?
+      or at least add some modifiers, for example
+      displaying in wireframe/grayscale/etc
+***** or add a postprocessing pass?
+      though that would probably imply either rendering to a separate FBO or
+      having some sort of masking ability
+
+      ex. adding noise/distortion, grayscale, etc
+*** 'group'/'layer' options?
+    add some way to toggle subsets of a scenegraph on/off, for example
+    debug geometry (cameras etc)
+*** search by paths
+** bvh/spatial index?
+** scenetree
+*** transform vector
+*** dirty vector(s)
+** draw list (lists?)
+   if we can update these incrementally, might want to cache them for
+   each shadow map, etc
+* stages
+** init/load
+*** load textures
+*** load geometry
+*** create shaders
+*** create FBOs/buffers/dynamic textures,etc
+    FBOs & renderbuffers mostly shared if possible?
+    ex. 1 big depth buffer shared by all shadow passes
+** per frame
+*** update scenegraph render data
+****
+*** scheduled updates
+    allow scheduling updates for N frames in future?
+    ex. cloud sim running at a few updates/min w/interpolation
+*** prioritized updates
+    add option for marking some thing as not needing updated every
+    frame and just run as many as possible within some time budget?
+    ex. shadow maps prioritized based on distance and/or last update time?
+*** flag updates for visibility, or only update when visible?
+    (possibly with separate update bounding box, for example for light volumes)
+**** flag updates for visibility of some other object
+     possibly with priority based on size/distance/pixels rendered?
+     for example when displaying a remote camera on a monitor in the scene
+*** CPU update
+    updates to render state that happen on CPU
+    no 'physics' or other non-trivial updates, those get handled separately
+    so we can minimize overhead of render loop for reduced latency/more
+    consistent frame rate
+    though may only worry about the "dump draw list" part being fast?
+**** update uniform buffers
+**** update streaming data, etc
+     (possibly move some of this to other threads eventually? probably
+     not worth trying to generalize threaded update for now though)
+*** GPU update
+    updates to render state that use GPU, including rendering scene
+    with special settings, or using compute shaders
+    ex. depth pass, shadow maps, compute shader to build command lists, etc
+*** render use
+    use shadow maps when drawing scene, etc
+*** (per-frame cleanup?)
+    not sure if anything will need this? usually will want to keep things
+    around from frame to fram
+** cleanup
+   mostly just flag previously requested resources as no-longer needed
+   with 'manager' object handling actual deallocation when nothing
+   needs it
+** async
+*** update scene render data when scenegraph changes?
+    :around/:before/:after methods on scenegraph modification?
+****
+* materials
+** shader component lib
+*** default materials
+**** wireframe (mixable with others if possible?), optionally transparent
+**** solid color
+**** simple texture
+*** default lighting interpolation
+**** none
+**** flat shaded
+**** per-pixel
+*** default lighting models
+**** ?
+** common UBO data
+*** per-frame
+    VP matrices
+    light data?
+*** per-material
+    opaque, up to shader code and material def
+    (colors, textures, etc)
+**** globals
+**** variable
+*** per-object
+    model matrix?
+* operations
+** add child
+** change material?
+** change mesh?
+** update property
+** move child (special case of update property?)
+* managers
+  one or more with-foo things to wrap around main loop
+** usage
+*** run cleanup on scenegraph (on exit, or between levels)
+*** (or on exit, just mark everything unused?)
+*** run init/load on scenegraph (on start, or between levels)
+*** free all no-longer-used resources
+*** create/initialize all newly requested resources
+** specific types
+*** texture
+**** file texture
+**** dynamic texture
+*** FBOs
+*** geometry
+*** shader programs
+*** uniform buffers
+*** ssbos?
+*** command lists?
+* bulk operations?
+  some things will have a bunch of objects needing similar processing,
+  so have a separate processor that does a bunch, and object
+  references into it?
+
+  not sure if it will actually be worth trying to aggregate these in
+  practice or not, depending on how many are actually in view/updating
+  at once
+** animation/skinning data
+** shadow maps/environent maps/lighting samples?
+* default primitives (some may end up special cases of others)
+** plane/checkerboard
+** cube
+** sphere/geosphere
+** pyramid
+** cone
+** cylinder
+** axes
+** grid of cylinders?
+** teapot?
+** heightfield?
+   translate a heightfield texture into a simple terrain mesh
+   (no LOD or optimization, just something for quick hacks)
+   UV from 0-1, ~2 tris per pixel (maybe 4 for nicer saddle points?)
+** http://assimp.sourceforge.net/howtoBasicShapes.html ?
+** text?
+*** static single-line label
+*** dynamic single-line text label
+*** monospaced text buffer
+*** variable width text buffer
+    possibly with reflow/etc?
+** 'camera'?
+* default animator primitives?
+** rotate
+** move to
+** look at
+** follow path?
+** interpolate/extrapolate positions
+** interpolate/extrapolate orientations
+** chain animations
+** ballistic? (move with constant acceleration/gravity)
+* high-level goals/effects/etc
+** build a simple scene w/debug HUDs, FPS controls
+   ex. plane + axes + fps graph
+** named attachment points for adding children to opaque hierarchies
+   ('opaque' as in not known in advance, with attachment points specified
+    in the data files)
+   ex. attach weapons to character hand, attach character to vehicle
+** limited 'input focus' support?
+   fps controls vs text entry/editing, or which object sees text/edit
+   (possibly also ability to override by key/mouse, for example right mouse
+   or capslock for temporary mouselook)
+** serialize/load a scene-graph?
+** force reload of (specific types of) assets
+** auto-reload assets on change?
+   (possibly with some delay, don't need to check every frame)
+** efficient change between sets of assets
+   ex. don't reload shared assets when switching between levels, but
+   also don't require enough resources to load all of both at once
+** efficient packing of resources
+   ex. textures in texture arrays/sparse textures
+   ex. lots of geometry in 1 big buffer
+** add objects from outside running program?
+   mostly intended for use from inside program, but would be nice to handle
+   external updates (possibly with a queue of changes to make in worst case)
+** lighting
+*** 'sunlight'
+*** local point lights
+**** omni (dual paraboloid, etc)
+**** spot
+*** area lights?
+** render shadow maps
+*** for each lighting type
+*** experiment with different types of shadow mapping
+** render to FBO for VR stuff
+** post processing effects
+*** HDR tone mapping
+** animation/skinning
+** particle systems
+** volumetric effects
+** sky rendering
+** clouds
+** view culling
+** collisions
+** picking?
+** high-level nodes like "voxel world" that handle some of the things on their own
+   voxels or highet maps might always be visible in normal view
+   frustum, but want extra infor during update or draw to implement
+   their own culling (possibly including a 'view' id of some sort to take
+   advantage of temporal coherence when drawing multiple views/shadow maps)
+** double-buffered rendering data?
+   for VR, we want a low-latency/low-overhead draw loop running at
+   fixed framerate, but actual contents of the scene can lag behind a bit
+   if needed as long as a new view is rendered from correct pose every frame
+
+   so have a "command list" that can be drawn from arbitrary view and reused
+   if scene update hasn't finished in time
+
+   then have a separate queue of "as time is available" tasks to
+   render for things like shadow maps? or render them from other
+   thread with prioritized queues when available?
+** procedural nodes?
+** LoD
+   
