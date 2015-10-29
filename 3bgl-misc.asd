@@ -89,5 +89,19 @@
             :components
             ((:file "package")
              (:file "extrude")
-             (:file "ttf-extrude-example")))))
+             (:file "ttf-extrude-example")))
+   (:module "buffer-builder"
+            :serial t
+            :components
+            ((:file "package")
+             (:file "builder")))
+   (:module "scenegraph"
+            :serial t
+            :components
+            ((:file "package")
+             (:file "state")
+             (:file "state-helper")
+             (:file "scene")))
+
+))
 
