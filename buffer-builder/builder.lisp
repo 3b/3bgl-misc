@@ -49,26 +49,28 @@
          (u (b n))
          (s (b n)))
 
-   (alexandria:plist-hash-table
-    ;; size (multiple of 4), default scale, default clamp, base type count
-    `(:vec1 (4 nil nil single-float 1) :vec2 (8 nil nil single-float 2)
-      :vec3 (12 nil nil single-float 3) :vec4 (16 nil nil single-float 4)
-      :vec1u8 (4 255 (0 1) (unsigned-byte 8) 1)
-      :vec2u8 (4 255 (0 1) (unsigned-byte 8) 2)
-      :vec3u8 (4 255 (0 1) (unsigned-byte 8) 3)
-      :vec4u8 (4 255 (0 1) (unsigned-byte 8) 4)
-      :vec1s8 (4 127 (-1 1) (signed-byte 8) 1)
-      :vec2s8 (4 127 (-1 1) (signed-byte 8) 2)
-      :vec3s8 (4 127 (-1 1) (signed-byte 8) 3)
-      :vec4s8 (4 127 (-1 1) (signed-byte 8) 4)
-      :vec1u16 (4 65535 (0 1) (unsigned-byte 16) 1)
-      :vec2u16 (4 65535 (0 1) (unsigned-byte 16) 2)
-      :vec3u16 (8 65535 (0 1) (unsigned-byte 16) 3)
-      :vec4u16 (8 65535 (0 1) (unsigned-byte 16) 4)
-      :vec1s16 (4 32767 (-1 1) (signed-byte 16) 1)
-      :vec2s16 (4 32767 (-1 1) (signed-byte 16) 2)
-      :vec3s16 (8 32767 (-1 1) (signed-byte 16) 3)
-      :vec4s16 (8 32767 (-1 1) (signed-byte 16) 4)))))
+    (alexandria:plist-hash-table
+     ;; size (multiple of 4), default scale, default clamp, base type, count, gl type
+     `(:vec1 (4 nil nil single-float 1 :float)
+       :vec2 (8 nil nil single-float 2 :float)
+       :vec3 (12 nil nil single-float 3 :float)
+       :vec4 (16 nil nil single-float 4 :float)
+       :vec1u8 (4 255 (0 1) (unsigned-byte 8) 1 :unsigned-byte)
+       :vec2u8 (4 255 (0 1) (unsigned-byte 8) 2 :unsigned-byte)
+       :vec3u8 (4 255 (0 1) (unsigned-byte 8) 3 :unsigned-byte)
+       :vec4u8 (4 255 (0 1) (unsigned-byte 8) 4 :unsigned-byte)
+       :vec1s8 (4 127 (-1 1) (signed-byte 8) 1 :byte)
+       :vec2s8 (4 127 (-1 1) (signed-byte 8) 2 :byte)
+       :vec3s8 (4 127 (-1 1) (signed-byte 8) 3 :byte)
+       :vec4s8 (4 127 (-1 1) (signed-byte 8) 4 :byte)
+       :vec1u16 (4 65535 (0 1) (unsigned-byte 16) 1 :unsigned-short)
+       :vec2u16 (4 65535 (0 1) (unsigned-byte 16) 2 :unsigned-short)
+       :vec3u16 (8 65535 (0 1) (unsigned-byte 16) 3 :unsigned-short)
+       :vec4u16 (8 65535 (0 1) (unsigned-byte 16) 4 :unsigned-short)
+       :vec1s16 (4 32767 (-1 1) (signed-byte 16) 1 :short)
+       :vec2s16 (4 32767 (-1 1) (signed-byte 16) 2 :short)
+       :vec3s16 (8 32767 (-1 1) (signed-byte 16) 3 :short)
+       :vec4s16 (8 32767 (-1 1) (signed-byte 16) 4 :short)))))
 
 (defun calc-vbo-layout (layout)
   (loop for (fn type . options) in layout
@@ -88,12 +90,22 @@
         for element-type = (fourth metadata)
         for count = (fifth metadata)
         for default = (getf options :default)
+        for normalize = (cond
+                           ((find :normalize options)
+                            (getf options :normalize))
+                           ((subtypep element-type 'float)
+                            nil)
+                           ((subtypep element-type 'integer)
+                            t))
         sum element-size into stride
         collect (list :fn fn :type type :location location
                       :size element-size :offset offset
                       :scale scale :clamp clamp
                       :element-type element-type
                       :count count
+                      :normalize normalize
+                      :gl-type (sixth metadata)
+                      :il (getf options :il)
                       :default (or default
                                    (coerce
                                     (loop
@@ -112,7 +124,7 @@
                                       collect i)
                                     'vector)))
           into l
-        finally (return (values stride l))))
+        finally (return (values (* 4 (ceiling stride 4)) l))))
 
 #++
 (multiple-value-list
@@ -210,7 +222,8 @@
   (assert layout)
   ;; allow using a (compile-time) constant to specify layouts
   (when (and (symbolp layout)
-             (constantp layout))
+             (or (constantp layout)
+                 (boundp layout)))
     (setf layout (symbol-value layout)))
   (alexandria:with-gensyms (index actual-size vert-buffer)
     (multiple-value-bind (stride attribs)
@@ -250,6 +263,21 @@
                (declare (ignorable ,@ (loop for i in attribs
                                             collect (list 'function (getf i :fn)))))
                ,@body)))))))
+
+
+(defun vertex-format-for-layout (layout &optional (binding 0))
+  ;; convert a vbo-builder layout to a scenegraph-state vertex format
+  (multiple-value-bind (stride attribs)
+      (calc-vbo-layout layout)
+    (loop for a in attribs
+          collect (list (getf a :location)
+                        binding
+                        (getf a :count)
+                        (getf a :gl-type)
+                        (getf a :normalize)
+                        (getf a :offset)
+                        :il (getf a :il)
+                        :stride stride))))
 
 #++
 (with-vbo-builder (b 16 size
