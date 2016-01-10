@@ -48,10 +48,14 @@
                  (vertex (* size (+ -0.5 (ldb (byte 1 0) i)))
                          (* size (+ -0.5 (ldb (byte 1 1) i)))
                          (* size (+ -0.5 (ldb (byte 1 2) i))))
-                 (b::emit-vertex)))
+                 (b::emit-vertex))
+               (v* (a b c &optional f)
+                 (cond
+                   (f (v a) (v b) (v c))
+                   (t (v a) (v c) (v b)))))
         (color 1 0 0)
         (normal 0 0 1)
-        (v 0) (v 1) (v 2) (v 1) (v 2) (v 3)
+        (v* 0 1 2) (v* 1 3 2)
         (loop for i below 4
               for a in '(0 0 2 3)
               for b in '(1 2 3 1)
@@ -62,11 +66,11 @@
                         (ldb (byte 1 2) c)
                         (/ c 8))
                  (normal n)
-                 (v a) (v b) (v (logior a 4))
-                 (v b) (v (logior a 4)) (v (logior b 4)))
-        (color 0 1 0)
+                 (v* b a (logior a 4) (plusp i))
+                 (v* b (logior a 4) (logior b 4) (plusp i)))
+        (color 1 1 1)
         (normal 0 0 -1)
-        (v 4) (v 5) (v 6) (v 5) (v 6) (v 7)))
+        (v* 4 6 5) (v* 5 6 7)))
     (gl:named-buffer-storage vbo b '() :end buffer-size)))
 
 (defmethod run-main-loop :before((w scenegraph-test))
@@ -120,6 +124,7 @@
             :blend t
             :blend-func '(:one :zero)
             :depth-test t
+            :cull-face :back
             )))))
 
 
