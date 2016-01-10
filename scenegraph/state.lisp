@@ -172,7 +172,14 @@
   ;; bindings is a list of buffer names or (buffer-name offset) lists
   ;; to bind to corresponding binding index
 
-
+  (loop for o across (enables old)
+        for n across (enables new)
+        ;; fixme: use enum values instead of keywords to avoid runtime lookup
+        for s in *enables*
+        when (or force (/= o n))
+          do (if (zerop n)
+                 (gl:disable s)
+                 (gl:enable s)))
   ;; blend is T,NIL or a list of T/NIL
   (let ((blend1 (get-state old :blend))
         (blend2 (get-state new :blend)))
@@ -391,8 +398,11 @@
   ;; canonical form (for example expand key aliases, sort indexed
   ;; lists convert number types, etc), including "intern"ing lists so
   ;; they can be EQ compared
-  (let* ((not-found (cons nil nil))
-         (d (getf key *state-vars* not-found)))
+  (let* ((not-found '(nil))
+         (e (member key *enables*))
+         (d (getf *state-vars* key not-found)))
+    (when e
+      (return-from canonicalize-state (list key value)))
     (when (eq d not-found)
       (error "state ~s not implemented yet..." key))
     nil))
@@ -616,7 +626,6 @@
           when (find v canonical-state)
             do (setf (aref (enables s) i)
                      (if (getf canonical-state v) 1 0)))
-    ;; todo: enables
     s))
 
 (defmethod canonicalize-state ((key (eql '%state)) value)

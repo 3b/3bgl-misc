@@ -119,6 +119,7 @@
            ; :blend-func '(:one :one-minus-src-alpha)
             :blend t
             :blend-func '(:one :zero)
+            :depth-test t
             )))))
 
 
