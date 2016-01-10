@@ -614,16 +614,22 @@
     (loop for v in *enables*
           for i from 0
           when (find v canonical-state)
-            do (setf (aref (enables s) i) (if (getf canonical-state v) 1 0)))
+            do (setf (aref (enables s) i)
+                     (if (getf canonical-state v) 1 0)))
     ;; todo: enables
     s))
 
 (defmethod canonicalize-state ((key (eql '%state)) value)
-  (let ((c (loop for (k v) on value by #'cddr
+  (let ((c (loop with seen = (make-hash-table)
+                 for (k v) on value by #'cddr
                  for can = (canonicalize-state k v)
-                 do (format t "~s ~s ->~% ~s~%" k v can)
-                 when can
-                   append can)))
+                 when (and can (not (gethash k seen)))
+                   append can
+                 do (setf (gethash k seen) t))))
+    (setf c (alexandria:alist-plist
+             (sort (alexandria:plist-alist c)
+                   'string<
+                   :key (lambda (a) (string (car a))))))
     (or (gethash c *known-states*)
         (setf (gethash c *known-states*)
               (%make-state c)))))

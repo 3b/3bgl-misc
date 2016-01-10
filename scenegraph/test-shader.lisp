@@ -25,4 +25,5 @@
 
 
 (defun fragment ()
-  (setf out-color (vec4 (.xyz (@ ins color)) 0.6)))
+  (let ((a (.a (@ ins color))))
+   (setf out-color (vec4 (* a (.xyz (@ ins color))) a))))

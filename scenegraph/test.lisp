@@ -43,7 +43,8 @@
       (labels ((v (i)
                  (color (ldb (byte 1 0) i)
                         (ldb (byte 1 1) i)
-                        (ldb (byte 1 2) i))
+                        (ldb (byte 1 2) i)
+                        (/ i 8))
                  (vertex (* size (+ -0.5 (ldb (byte 1 0) i)))
                          (* size (+ -0.5 (ldb (byte 1 1) i)))
                          (* size (+ -0.5 (ldb (byte 1 2) i))))
@@ -58,7 +59,8 @@
               for c from 2
               do (color (ldb (byte 1 0) c)
                         (ldb (byte 1 1) c)
-                        (ldb (byte 1 2) c))
+                        (ldb (byte 1 2) c)
+                        (/ c 8))
                  (normal n)
                  (v a) (v b) (v (logior a 4))
                  (v b) (v (logior a 4)) (v (logior b 4)))
@@ -86,37 +88,12 @@
       (setf (3bgl-shaders::uniform p 's::mvp)
             (sb-cga:matrix*
              (kit.math:frustum -0.1 0.1 -0.1 0.1 0.5 100)
-             (kit.math:look-at (v3 3 2 15) (v3 0 0 0) (v3 0 1 0))
+             #++(kit.math:look-at (v3 3 2 15) (v3 0 0 0) (v3 0 1 0))
              #++(basecode::projection-matrix w)
-             #++(basecode::freelook-camera-modelview w)))
-      (3bgl-shaders::use-program p))
-
-    (%gl:draw-arrays :triangles 0 36)
-    #++(gl:with-primitives :triangles
-      (labels ((color (r g b &optional (a 1))
-                 (gl:vertex-attrib 1 r g b a))
-               (v (i)
-                 (color (ldb (byte 1 0) i)
-                        (ldb (byte 1 1) i)
-                        (ldb (byte 1 2) i)
-                        )
-                 (gl:vertex-attrib 0
-                                   (* 2 (+ -0.5 (ldb (byte 1 0) i)))
-                                   (* 2 (+ -0.5 (ldb (byte 1 1) i)))
-                                   (* 2 (+ -0.5 (ldb (byte 1 2) i))))))
-        (color 1 0 0)
-        (v 0) (v 1) (v 2) (v 1) (v 2) (v 3)
-        (loop for i below 4
-              for a in '(0 0 2 3)
-              for b in '(1 2 3 1)
-              for c from 2
-              do (color (ldb (byte 1 0) c)
-                        (ldb (byte 1 1) c)
-                        (ldb (byte 1 2) c))
-                 (v a) (v b) (v (logior a 4))
-                 (v b) (v (logior a 4)) (v (logior b 4)))
-        (color 0 1 0)
-        (v 4) (v 5) (v 6) (v 5) (v 6) (v 7))))
+             (basecode::freelook-camera-modelview w))))
+    ;(gl:disable :cull-face)
+    ;(gl:disable :depth-test)
+    (%gl:draw-arrays :triangles 0 36))
   (%gl:use-program 0))
 
 (multiple-value-list (b::calc-vbo-layout *vnc-layout*))
@@ -129,13 +106,19 @@
 ;; (setf *state* nil)
 (defmethod key-down :after ((w scenegraph-test) k)
   (case k
+    (:c
+     (gl:delete-buffers (list (buffer w)))
+     (setf (buffer w) (gl:create-buffer))
+     (cube (buffer w)))
     (:space
      (setf *state*
            (scenegraph::make-state*
             :program (program w)
             :vertex-format (b::vertex-format-for-layout *vnc-layout*)
             :blend t
-            :blend-func '(:src-alpha :one-minus-src-alpha)
+           ; :blend-func '(:one :one-minus-src-alpha)
+            :blend t
+            :blend-func '(:one :zero)
             )))))
 
 
