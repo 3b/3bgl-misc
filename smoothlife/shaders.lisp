@@ -1,6 +1,6 @@
 (defpackage #:smoothlife-shaders
-  (:use :cl :basecode :3bgl-glsl)
-  (:shadowing-import-from :3bgl-glsl :defun :defconstant :defmacro))
+  (:use :basecode :3bgl-glsl/cl)
+)
 (in-package #:smoothlife-shaders)
 
 
