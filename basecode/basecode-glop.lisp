@@ -204,6 +204,9 @@
      (setf (%basecode-window gw) bw)
      (setf (%glop-window bw) gw)
      (setf (slot-value bw '%exit-main-loop) nil)
+     ;; try to get correct vsync on recent windows
+     (glop::%swap-interval gw 1)
+     (setf (glop::win32-window-swap-interval gw) 0)
      (run-main-loop bw)
      ;; should this be in an unwind-protect cleanup?
      (basecode-cleanup bw))))
