@@ -28,7 +28,7 @@
      1000000000d0))
 
 (defmethod basecode-draw :around ((w fps-graph))
-  (let ((start (now)))
+  (let ((start (%frame-start-time w)))
     (call-next-method)
     (let ((stop (now)))
       (with-pixel-ortho-projection (w)

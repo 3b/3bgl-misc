@@ -17,7 +17,8 @@
    (%mouse-position :reader mouse-position :initform (list 0 0))
    ;; used to rate limit repaints from resize events
    (%last-repaint :accessor %last-repaint :initform 0)
-   (%resized :accessor %resized :initform t)))
+   (%resized :accessor %resized :initform t)
+   (%frame-start-time :accessor %frame-start-time :initform 0)))
 
 (defgeneric basecode-init (w)
   (:method (w)))

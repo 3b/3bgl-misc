@@ -221,7 +221,8 @@
        (with-continue-restart
          (basecode-draw w))
        (when (swap-buffers w)
-         (glop:swap-buffers (%glop-window w)))))
+         (glop:swap-buffers (%glop-window w)))
+       (setf (%frame-start-time w) (now))))
 
 (defmethod run-nested-loop ((w basecode-glop) lock-and-var)
   (declare (optimize debug))
