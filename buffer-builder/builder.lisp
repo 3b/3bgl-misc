@@ -265,11 +265,15 @@
                ,@body)))))))
 
 
-(defun vertex-format-for-layout (layout &optional (binding 0))
+(defun vertex-format-for-layout (layout &key (binding 0)
+                                          named)
   ;; convert a vbo-builder layout to a scenegraph-state vertex format
+  ;; if NAMED, use plist style with attribute names as keys
   (multiple-value-bind (stride attribs)
       (calc-vbo-layout layout)
     (loop for a in attribs
+          when named
+            collect (getf a :fn)
           collect (list (getf a :location)
                         binding
                         (getf a :count)

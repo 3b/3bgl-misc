@@ -90,12 +90,20 @@
 
 (defparameter *per-object-state-vars*
   ;; GL state that isn't included in STATE object and is updated frequently
-  ;; (based on nv_command_list, so may need changed for vulkan)
-  '(:blend-color
-    :stencil-ref :alpha-ref
+  ;; (based on nv_command_list/vulkan)
+  '(;; nv_command_list
+    :alpha-ref ;; use discard in shader in vk?
+    :front-face ;; per pipeline in vk
+    ;; both
+    :polygon-offset ;;vk= :depth-bias
+    :blend-color ;;vk= :blend-constants
     :line-width
-    :polygon-offset
-    :front-face))
+    :stencil-ref
+    ;; vulkan only
+    :depth-bounds ;;gl= :depth-range
+    :stencil-compare-mask
+    :stencil-write-mask
+))
 
 ;; order of vars in state bitmask
 #++
