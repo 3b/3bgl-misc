@@ -52,18 +52,19 @@
 
 (defmethod glop:on-event ((w %basecode-glop-window) (event glop:resize-event))
   (declare (optimize debug))
-  (let ((width (glop:width event))
-        (height (glop:height event))
-        (bw (%basecode-window w)))
-    (when (or (/= (width bw) width) (/= height (height bw)))
-      (setf (%resized bw) t))
-    (gl:viewport 0 0 width height)
-    (setf (slot-value bw '%width) width
-          (slot-value bw 'width) width
-          (slot-value bw '%height) height
-          (slot-value bw 'height) height
-          (slot-value bw '%aspect) (float (/ width height) 1.0))
-    (with-continue-restart (basecode-reshape bw))))
+  (with-continue-restart
+    (let ((width (glop:width event))
+          (height (glop:height event))
+          (bw (%basecode-window w)))
+      (when (or (/= (width bw) width) (/= height (height bw)))
+        (setf (%resized bw) t))
+      (gl:viewport 0 0 width height)
+      (setf (slot-value bw '%width) width
+            (slot-value bw 'width) width
+            (slot-value bw '%height) height
+            (slot-value bw 'height) height
+            (slot-value bw '%aspect) (float (/ width height) 1.0))
+      (basecode-reshape bw))))
 
 
 (defmethod glop:on-event ((w %basecode-glop-window)
