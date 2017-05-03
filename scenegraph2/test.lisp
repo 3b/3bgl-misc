@@ -13,6 +13,7 @@
                       scenegraph::scenegraph-state-helper
                       perspective-projection)
   ((program :accessor program :initform nil)
+   (sg :accessor sg :initform nil)
    (buffer :accessor buffer :initform nil)
    (tex :accessor tex :initform nil))
   (:default-initargs :look-at-eye '(3 2 15)))
@@ -54,78 +55,99 @@
   ;;(setf (buffer w) (gl:create-buffer))
   #++(cube (buffer w)))
 
-(defparameter *no* 0)
 #++(sg::bindings (car (getf (car (second (buffer *w*))) :vertex)))
+
+(defun draw-object (o)
+  (let ((meshes o))
+    (loop for mesh in meshes
+          for index = (getf mesh :index)
+          for (bs start count) = (getf mesh :vertex)
+          for vao = (sg::vao bs)
+          do (%gl:vertex-array-element-buffer
+              vao (sg::vbo (sg::index-buffer sg::*resource-manager*)))
+             (loop for b in (sg::bindings bs)
+                   do (%gl:vertex-array-vertex-buffer
+                       vao (sg::index b) (sg::vbo b)
+                       (sg::offset b) (sg::stride b)))
+             (gl:bind-vertex-array VAO)
+             (incf *no* (second index))
+             (%gl:draw-elements-base-vertex :triangles (second index)
+                                            :unsigned-short
+                                            (* 2 (first index))
+                                            start)
+             (gl:bind-vertex-array 0))))
+
+
+(defmethod draw-node ((n sg::transform) &key mv p u)
+  (when (sg::children n)
+    (let* ((mv (sb-cga:matrix* mv (sg::matrix n))))
+      (loop for c in (sg::children n)
+            do (draw-node c :mv mv :p p :u u)))))
+
+(defmethod draw-node ((n sg::instance) &key mv p u)
+  ;;(break "o"(sg::object n))
+  (3bgl-shaders::uniform-matrix-4fv u (sb-cga:matrix* p mv))
+  (draw-object (sg::object n))
+  (when (sg::children n)
+    (loop for c in (sg::children n)
+          do (draw-node c :mv mv :p p :u u))))
+
+(defun draw-sg (sg mv p &key u)
+  (let ((r (gethash "teapot.obj" (sg::index sg)))
+        (b (gethash "Base" (sg::index sg)))
+        (top (gethash "Top" (sg::index sg))))
+    (when b
+      (setf (sg::matrix b)
+            (sb-cga:matrix* (sg::matrix b)
+                            (sb-cga:rotate-around (sb-cga:normalize
+                                                   (sb-cga:vec 0.0 1.0 0.0))
+                                                  0.05))))
+    (when r
+      (setf (sg::matrix r)
+            (sb-cga:translate* 0.0
+                              (* 3 (sin (/ (get-internal-real-time) 700.0)))
+                              0.0)))
+    (when top
+      (setf (sg::matrix top)
+
+            (sb-cga:translate* 0.0
+                               (abs (* 2 (sin (/ (get-internal-real-time) 1200.0))))
+                               0.0))))
+  (draw-node (sg::root sg) :mv mv :p p :u u))
+
+(defparameter *no* 0)
+(defparameter *nn* 0)
 (defmethod basecode-draw ((w scene2test))
   (gl:clear-color (* 0.2 (abs (sin (/ (get-internal-real-time) 1000.0)))) 0.2 0.3 1)
   (gl:clear :color-buffer :depth-buffer)
   (setf *w* w)
   (gl:color 1 0 1 1)
   (gl:point-size 3)
+  (setf *no* 0)
   (gl:with-primitive :points
     (loop repeat 10 do (gl:vertex (- (random 1.0) 0.5)
                                   (- (random 1.0) 0.5)
                                   (- (random 1.0) 0.5))))
-  #++(when  (buffer w)
-    (let ((meshes (second (buffer w))))
-      (loop for mesh in meshes
-            for index = (getf mesh :index)
-            for (bs start count) in (getf mesh :vertex)
-            for vao = (sg::vao bs)
-            do #++(gl:bind-vertex-array vao)
-               (%gl:vertex-array-element-buffer
-                vao (sg::vbo (sg::index-buffer sg::*resource-manager*)))
-               (loop for b in (sg::bindings bs)
-                     do (%gl:vertex-array-vertex-buffer
-                         vao (sg::index b) (sg::vbo b)
-                         (sg::offset b) (sg::stride b)))
-               (gl:bind-vertex-array VAO)
-               (incf *no* (second index))
-               (%gl:draw-elements-base-vertex :triangles (second index)
-                                              :unsigned-short
-                                              (* 2 (first index)) start)
-               (gl:bind-vertex-array 0)
-)))
+
   (when *state*
-    (scenegraph::apply-state *state* *state* :force t
-                                             #+:bindings (list (buffer w))))
+    (scenegraph::apply-state *state* *state* :force t))
   (let ((p (program w)))
   (gl:point-size 3)
     (when p
       (setf (3bgl-shaders::uniform p 's::mvp)
             (sb-cga:matrix*
-             #++(kit.math:frustum -0.1 0.1 -0.1 0.1 0.5 100)
-             ;;(kit.math:frustum -10.1 10.1 -0.1 0.1 0.5 100)
-             #++(kit.math:look-at (v3 3 2 15) (v3 0 0 0) (v3 0 1 0))
              (basecode::projection-matrix w)
              (basecode::freelook-camera-modelview w)))
-      (when  (buffer w)
-        (let ((meshes (second (buffer w))))
-
-          (loop for mesh in meshes
-            for index = (getf mesh :index)
-            for (bs start count) = (getf mesh :vertex)
-            for vao = (sg::vao bs)
-            do #++(gl:bind-vertex-array vao)
-               #++(Format t "meshes ~s~%" mesh)
-               (%gl:vertex-array-element-buffer
-                vao (sg::vbo (sg::index-buffer sg::*resource-manager*)))
-               (loop for b in (sg::bindings bs)
-                     do (%gl:vertex-array-vertex-buffer
-                         vao (sg::index b) (sg::vbo b)
-                         (sg::offset b) (sg::stride b)))
-               (gl:bind-vertex-array VAO)
-               (incf *no* (second index))
-                (%gl:draw-elements-base-vertex :triangles (second index)
-                                              :unsigned-short
-                                              (* 2 (first index))
-                                              start)
-                #++(%gl:draw-arrays :points 0 1000)
-               (gl:bind-vertex-array 0)))))
-    ;(gl:disable :cull-face)
-    ;(gl:disable :depth-test)
-    #++(%gl:draw-arrays :triangles 0 36))
-  (%gl:use-program 0))
+      (when (sg w)
+        (draw-sg (sg w) (basecode::freelook-camera-modelview w)
+                 (basecode::projection-matrix w)
+                 :u (getf (gethash 's::mvp (3bgl-shaders::uniforms p))
+                          :index)))))
+  (%gl:use-program 0)
+  (let ((o *nn*))
+    (setf *nn* (round (+ (* 9 *nn*) (* 1 *no*)) 10))
+    (when (= *nn* o)
+      (setf *nn* *no*))))
 
 ;; *w* scenegraph::*v*
 ;; (setf *state* nil)
@@ -133,12 +155,22 @@
   (case k
     (:c
      (sg::load-object :default :cube))
-    (:r (setf (buffer w) nil) (sg::reset-manager sg::*resource-manager*))
-    (:i (swank:inspect-in-emacs
-         (setf (buffer w)
-               (sg::load-object :file (asdf:system-relative-pathname
-                                       '3bgl-misc
-                                       "data/teapot.obj")))))
+    (:r
+     (setf (buffer w) nil
+           (sg w) nil)
+     (sg::reset-manager sg::*resource-manager*))
+    (:i
+     (let* ((sg  (sg::load-object :file (asdf:system-relative-pathname
+                                         '3bgl-misc
+                                         "data/teapot/teapot.obj")))
+            (r (sg::root sg)))
+       (sg::add-node sg 'sg::transform :root nil
+                                       :matrix
+                                       (sb-cga:scale* 0.1 0.1 0.1)
+                                       #++(sb-cga:identity-matrix)
+                                       #++(sb-cga:translate* 1.0 0.0 0.0))
+       (sg::add-node* sg r (sg::root sg))
+       (setf (sg w) sg)))
     (:p
      (unless (program w)
        (setf (program w)
@@ -154,7 +186,7 @@
             :cull-face :back)))
     ((:backspace :tab)
      (basecode::reset-freelook-camera w))
-    (:space
+    (:l
      #++(setf (tex w)
            (list
             (sg::load-texture
@@ -162,8 +194,9 @@
               '3bgl-misc "data/debug-texture.png"))
             (sg::load-texture
              (asdf:system-relative-pathname
-              '3bgl-misc "data/debug-bump-texture.png"))))
-     ())))
+              '3bgl-misc "data/debug-bump-texture.png")))))
+    (:space
+     )))
 
 (setf 3bgl-shaders::*print-shaders* t)
 
@@ -171,20 +204,4 @@
 ; (basecode-run (make-instance 'scene2test :x 0))
 ; (basecode-run (make-instance 'scene2test :x 1924))
 
-#++
-(
- geometry = variable sized records? (or batch up into fixed size blocks?)
- static geometry = fixed lifetime: load whole level->free whole level = slab GC
- streamed geometry = variable lifetime: load some, free others = compacting GC?
- dynamic geometry = generate per-frame, use once = ring-buffer
 
- material = ~fixed size records? (max size of used types if known?)
- material data = static/streamed
-
- bone/anim data
-
- per-scene uniforms: slab/compacting?
- per-frame uniforms: camera, global material params(sun, ambient) = ring-buffer
- per-object: object material params (which material, colors, etc) = mapped ring
-
-)

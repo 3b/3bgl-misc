@@ -35,31 +35,46 @@
 
 
 
-(defun translate-ai-skeleton (root)
+(defun translate-ai-nodes (root)
   (let ((i 0)
         ;; name -> index + node
         (h (make-hash-table :test 'equalp))
         ;; set of meshes -> names of nodes using that set
         (objects (make-hash-table :test 'equalp))
-        (work nil))
-    (labels ((add (n)
-               (let ((name (ai:name n)))
-                 (format t "add node ~a~%" name)
+        (work nil)
+        (sg (make-instance 'scenegraph)))
+    (labels ((add (w)
+               (let* ((p (first w))
+                      (n (second w))
+                      (name (ai:name n))
+                      (pname (and p (ai:name p))))
+                 (format t "~& add node ~a @ ~a~%"
+                         name pname)
                  (setf (gethash name h)
                        (list i n))
+                 (add-node sg 'transform (ai:name n) pname
+                           :matrix (ai:transform n))
                  (push name (gethash (sort (copy-seq (ai:meshes n)) '<)
                                      objects))
                  (incf i)))
              (r (w)
-               (when w
-                 (map nil #'add w)
-                 (loop for n in work
-                       do (loop for c across (ai:children n)
-                                do (push c work)))
-                 (r (reverse (shiftf work nil))))))
-      (setf work (list root))
+               (setf work nil)
+               (labels ((n (n) (cond
+                                 ((consp n) (mapcar #'n n))
+                                 (n (ai:name n))
+                                 (t n))))
+                 (format t "~%recurse: ~s~%" (mapcar #'n w))
+                 (when w
+                   (map nil #'add w)
+                   (loop for (p n) in w
+                         do (format t "add children: ~s~%"
+                                    (map nil #'n (ai:children n)))
+                         do (loop for c across (ai:children n)
+                                  do (push (list n c) work)))
+                   (r (reverse work))))))
+      (setf work (list (list nil root)))
       (r work)
-      (list h objects))))
+      (list sg objects))))
 
 (defun translate-ai-mesh (m skel)
   (let ((layout nil))
@@ -123,10 +138,35 @@
   ;; todo: animations
   ;; todo: lights
   ;; todo: cameras
-  (let* ((skeleton (translate-ai-skeleton (ai:root-node s)))
-         (meshes (loop for m across (ai:meshes s)
-                       collect (translate-ai-mesh m skeleton))))
-    (list skeleton meshes)))
+  (let* ((nodes/groups (translate-ai-nodes (ai:root-node s)))
+         (sg (first nodes/groups))
+         (groups (second nodes/groups))
+         ;; todo: build a 'skeleton' for each node = hash of each node
+         ;; used as bone by specific object, with index of bone in
+         ;; that particular skeleton instead of whole tree
+         #++ (skeleton (extract-skeletons nodes))
+         (objects
+           ;; possibly some duplication this way, but if 2 distinct
+           ;; objects share meshes they might still have different
+           ;; skeletons, so just duplicating for now. (presumably
+           ;; pretty rare to reuse meshes either way though)
+           (loop with h = (make-hash-table :test 'equalp)
+                 for o in (alexandria:hash-table-keys groups)
+                 for meshes = (loop for m# across o
+                                    for m = (aref (ai:meshes s) m#)
+                                    collect (translate-ai-mesh m nil))
+                 when meshes
+                   do (assert (not (gethash o h)))
+                      (setf (gethash o h) meshes)
+                 finally (return h))))
+    (loop for k being the hash-keys of objects using (hash-value v)
+          for names = (gethash k groups)
+          do (format t "~s @~s-> ~s~%" k names v)
+          do (loop for n in names
+                   do (add-node sg 'instance (cons :instance n)
+                                n :object v)))
+#++    (list sg (alexandria:hash-table-values objects))
+    sg))
 
 (defmethod load-object ((loader (eql :file)) name)
   (let ((o (assimp:import-into-lisp
