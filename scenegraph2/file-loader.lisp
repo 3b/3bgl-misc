@@ -163,9 +163,7 @@
           for names = (gethash k groups)
           do (format t "~s @~s-> ~s~%" k names v)
           do (loop for n in names
-                   do (add-node sg 'instance (cons :instance n)
-                                n :object v)))
-#++    (list sg (alexandria:hash-table-values objects))
+                   do (convert-transform-to-instance sg n v)))
     sg))
 
 (defmethod load-object ((loader (eql :file)) name)
