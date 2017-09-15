@@ -1,4 +1,4 @@
-#++ (asdf:load-systems '3bgl-misc 'glsl-packing)
+#++ (asdf:load-systems '3bgl-misc)
 (defpackage #:scene2test
   (:use :cl :basecode)
   (:local-nicknames (:s #:3bgl-ai-shaders)
@@ -19,10 +19,7 @@
    (tex :accessor tex :initform nil)
    (material :accessor material :initform nil)
    (shader-globals :reader shader-globals :initform (make-hash-table))
-   (globals-ssbo :accessor globals-ssbo :initform nil)
-   (globals-packing :accessor globals-packing :initform nil)
-   (globals-ssbo-size :accessor globals-ssbo-size :initform nil)
-   (globals-writer :accessor globals-writer :initform nil))
+   (globals-ssbo :initform nil :accessor globals-ssbo))
   (:default-initargs :look-at-eye '(-97 14 -16)
                      :look-at-target '(30 28 5)
                      :projection-far 1000.0))
@@ -40,7 +37,6 @@
 (defparameter *w* nil)
 
 (defparameter *scene-graph* nil)
-(defparameter *state* nil)
 
 (declaim (inline v3))
 (defun v3 (x y z)
@@ -53,18 +49,20 @@
     (call-next-method)))
 
 (defmethod run-main-loop :before ((w scene2test))
-  (setf *state* nil))
+  (setf (globals-ssbo w) (3bgl-ssbo:make-ssbo :data (shader-globals w))))
 
 (defmethod basecode-shader-helper::shader-recompiled :after ((w scene2test) s)
   (format t "shader recompiled ~s~%" s)
-  (when (sg::program (sg::get-material (material w)))
-    (sg::update-material (material w) :repack t)
-    (let ((sg::*writer-defaults* (make-hash-table))
-          (pack (sg::calculate-packing (sg::program (sg::get-material
-                                                     (material w)))
-                                       :index 0)))
-      (setf (globals-writer w) (sg::make-writer-for-layout pack nil))
-      (setf (globals-packing w) pack))))
+  (let ((p (sg::program (sg::get-material (material w)))))
+    (when p
+      (sg::update-material (material w) :repack t)
+      (3bgl-ssbo:update-ssbo-layout (globals-ssbo w)
+                                    (3bgl-ssbo:calculate-layout
+                                     (alexandria:hash-table-values
+                                      (3bgl-shaders::ssbos p))
+                                     (alexandria:hash-table-values
+                                      (3bgl-shaders::structs p))
+                                     :index 0)))))
 
 (defparameter *no* 0)
 (defparameter *nn* 0)
@@ -109,26 +107,7 @@
   (draw-node (sg::root sg) :mv mv :p p :u u))
 
 (defmethod bind-globals ((w scene2test))
-  (when (and (globals-writer w)
-             (globals-packing w))
-    (let* ((pack (globals-packing w))
-           (size (getf pack :base)))
-      (unless (and (globals-ssbo w)
-                   (eql size (globals-ssbo-size w)))
-        (when (globals-ssbo w)
-          (gl:delete-buffers (list (shiftf (globals-ssbo w) nil))))
-        (when size
-          (setf (globals-ssbo w) (gl:create-buffer))
-          (gl:named-buffer-storage (globals-ssbo w) nil '(:dynamic-storage)
-                                   :end size)
-          (setf (globals-ssbo-size w) size)))
-      (when size
-        (cffi:with-foreign-object (p :char size)
-          (funcall (globals-writer w) (shader-globals w) p size)
-          (%gl:named-buffer-sub-data (globals-ssbo w) 0 (globals-ssbo-size w) p)))))
-  (when (globals-ssbo w)
-    (%gl:bind-buffer-base :shader-storage-buffer sg::+globals-binding+
-                          (globals-ssbo w))))
+  (3bgl-ssbo:bind-ssbo (globals-ssbo w) sg::+globals-binding+))
 
 (defmethod basecode-draw ((w scene2test))
   (gl:clear-color (* 0.2 (abs (sin (/ (get-internal-real-time) 1000.0)))) 0.2 0.3 1)
@@ -146,11 +125,11 @@
              (basecode::projection-matrix w)
              (basecode::freelook-camera-modelview w)
              (sb-cga:scale* 0.1 0.1 0.1)))
-      (bind-globals w)))
-  (when (sg w)
-    (draw-sg (sg w) (basecode::freelook-camera-modelview w)
-             (basecode::projection-matrix w)))
-  (%gl:use-program 0)
+      (bind-globals w)
+      (when (sg w)
+        (draw-sg (sg w) (basecode::freelook-camera-modelview w)
+                 (basecode::projection-matrix w)))
+      (%gl:use-program 0)))
   (let ((o *nn*))
     (setf *nn* (round (+ (* 9 *nn*) (* 1 *no*)) 10))
     (when (= *nn* o)
@@ -161,7 +140,7 @@
 ;; (setf *state* nil)
 (defmethod key-down :after ((w scene2test) k)
   (case k
-    (:c
+    #++(:c
      (sg::load-object :default :cube))
     (:r
      (setf (buffer w) nil
@@ -209,6 +188,11 @@
      (setf (basecode::projection-far w) 1000.0)
      (basecode::update-projection w)
      (basecode::reset-freelook-camera w))
+    (:c
+     (let ((mat (sg::get-material 'ai-shaders)))
+      (setf (gethash 's::color (aref (sg::materials mat) 0))
+            (print (list (random 1.0) (random 1.0) (random 1.0) 1.0)))
+       (setf (sg::dirty mat) t)))
     (:l
      #++(setf (tex w)
               (list
@@ -228,4 +212,4 @@
 #++
 (sg::dump-scenegraph (sg::root (sg *w*)) :id t)
 ; (basecode-run (make-instance 'scene2test :x 0))
-; (basecode-run (make-instance 'scene2test :x 1920 :y 15))
+; (basecode-run (make-instance 'scene2test :x 1924 :y 15))

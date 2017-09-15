@@ -4,7 +4,7 @@
                           opticl com.gigamonkeys.binary-data
                           split-sequence parse-number
                           mathkit 3bgl-shader glsl-packing
-                          cl-tga-opengl)
+                          cl-tga-opengl 3bgl-ssbo)
   :serial t
   :components
   ((:module "math"
@@ -107,6 +107,7 @@
             :components
             ((:file "package")
              (:file "resource-manager")
+             (:file "material")
              (:file "file-loader")
              (:file "scenegraph2")))
 

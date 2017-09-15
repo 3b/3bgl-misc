@@ -34,12 +34,16 @@
     (when m
       (when (or repack
                 (not (packing m)))
-        (let* ((packing (calculate-packing (program m)
-                                           :index +materials-binding+))
-               (*writer-defaults* (defaults m)))
+        (let* ((packing (3bgl-ssbo:calculate-layout
+                         (alexandria:hash-table-values
+                          (3bgl-shaders::ssbos (program m)))
+                         (alexandria:hash-table-values
+                          (3bgl-shaders::structs (program m)))
+                         :index +materials-binding+))
+               (3bgl-ssbo::*writer-defaults* (make-hash-table)))
           (setf (packing m) packing)
           (setf (material-writer m)
-                (make-writer-for-layout packing (count-var m)))))
+                (3bgl-ssbo::make-writer-for-layout packing (count-var m)))))
 
       (when (and (dirty m) (packing m))
         ;; todo: don't recreate whole buffer every time. at minimum
@@ -93,6 +97,8 @@
         (%gl:bind-buffer-base :shader-storage-buffer +materials-binding+
                               (material-ssbo m)))
       (scenegraph::apply-state (state m)
-                               (state (previous-material *resource-manager*)))
+                               (when (previous-material *resource-manager*)
+                                 (state
+                                  (previous-material *resource-manager*))))
 
       (setf (previous-material *resource-manager*) m))))
