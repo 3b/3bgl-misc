@@ -130,5 +130,5 @@
 
 (setf 3bgl-shaders::*print-shaders* t)
 
-; (basecode-run (make-instance 'scenegraph-test :x 1920))
+; (basecode-run (make-instance 'scenegraph-test :x 1924))
 

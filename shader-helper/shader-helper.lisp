@@ -23,6 +23,11 @@
   (loop for f in functions
         do (pushnew p (gethash f *live-programs*))))
 
+(defun forget-program (p)
+  (loop for k in (alexandria:hash-table-keys *live-programs*)
+        do (setf (gethash k *live-programs*)
+                 (remove p (gethash k *live-programs*)))))
+
 (defmethod shader-recompiled ((w basecode-shader-helper) shader)
   ;; hook for updating things after a shader is recompiled
   ;; (for example if size of ssbo changed or something)
@@ -63,6 +68,9 @@
                                       ((or function symbol)
                                        (funcall hook)))))
         (more-programs-map (make-hash-table)))
+    (when modified
+      (format t "~s ~s~%" modified more-programs)
+      (format t "~s~%" (alexandria:hash-table-alist *live-programs*)))
     (loop for f in modified
           do (loop for p in (gethash f *live-programs*)
                    do (3bgl-shaders::flag-shader p f)))
@@ -96,6 +104,5 @@
           (3bgl-shaders::uniform program "mv") mv
           (3bgl-shaders::uniform program "mvp") mvp
           (3bgl-shaders::uniform program "normalMatrix") mv
-          (3bgl-shaders::uniform program "eyePos") (basecode::freelook-camera-position w)))
-  )
+          (3bgl-shaders::uniform program "eyePos") (basecode::freelook-camera-position w))))
 

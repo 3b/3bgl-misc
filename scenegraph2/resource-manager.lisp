@@ -1,12 +1,18 @@
 (in-package 3bgl-sg2)
 
+(defparameter +globals-binding+ 0)
+(defparameter +materials-binding+ 1)
+(defparameter +per-object-binding+ 2)
+
 (defclass resource-manager ()
   ;; buffers is indexed by a 'vertex format' as created by
   ;; buffer-builder::vertex-format-for-layout, values are buffer-set
   ;; objects corresponding to layout.
   ((buffers :initform (make-hash-table :test 'equalp) :reader buffers)
    (index-buffer :initform (make-instance 'index-buffer) :reader index-buffer)
-   (objects :initform (make-hash-table :test 'equalp) :reader objects)))
+   (objects :initform (make-hash-table :test 'equalp) :reader objects)
+   (materials :initform (make-hash-table :test 'equalp) :reader materials)
+   (previous-material :initform nil :accessor previous-material)))
 
 (defvar *resource-manager* nil)
 (defvar *foo* nil)
@@ -76,7 +82,7 @@
                                  ;; (~2MB)
                                  :alloc-granularity (expt 2 20))))
     (assert (>= new-size (size buffer)))
-    (assert (>= new-size (* (stride buffer) (+ count (next buffer)))))
+    (assert (>= new-size (+ count (next buffer))))
     (setf (size buffer) (grow-buffer buffer new-size))
     (%gl:named-buffer-sub-data (vbo buffer)
                                (* (stride buffer) (next buffer))
@@ -120,7 +126,6 @@
                                 :vao (caadr
                                       (scenegraph::canonicalize-state
                                        :vertex-format format)))))
-        ;;(gl:)
         (setf (gethash format (buffers *resource-manager*)) bs)
         (setf (bindings bs)
               (list (make-instance 'buffer-binding :stride stride

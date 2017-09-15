@@ -1,7 +1,7 @@
-#++ (asdf:load-systems '3bgl-misc)
+#++ (asdf:load-systems '3bgl-misc 'glsl-packing)
 (defpackage #:scene2test
   (:use :cl :basecode)
-  (:local-nicknames (:s #:scene2test-shaders)
+  (:local-nicknames (:s #:3bgl-ai-shaders)
                     (:b #:buffer-builder)
                     (:sg #:3bgl-sg2)))
 (in-package #:scene2test)
@@ -13,12 +13,19 @@
                       scenegraph::scenegraph-state-helper
                       perspective-projection
                       basecode::fps)
-  ((program :accessor program :initform nil)
-   (sg :accessor sg :initform nil)
+  ((sg :accessor sg :initform nil)
    (buffer :accessor buffer :initform nil)
    (hh :initform (make-hash-table :test 'equal) :accessor hh)
-   (tex :accessor tex :initform nil))
-  (:default-initargs :look-at-eye '(3 2 15)))
+   (tex :accessor tex :initform nil)
+   (material :accessor material :initform nil)
+   (shader-globals :reader shader-globals :initform (make-hash-table))
+   (globals-ssbo :accessor globals-ssbo :initform nil)
+   (globals-packing :accessor globals-packing :initform nil)
+   (globals-ssbo-size :accessor globals-ssbo-size :initform nil)
+   (globals-writer :accessor globals-writer :initform nil))
+  (:default-initargs :look-at-eye '(-97 14 -16)
+                     :look-at-target '(30 28 5)
+                     :projection-far 1000.0))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   ;; eval at compile time as well so vbo-builder macro can see it
@@ -43,22 +50,21 @@
 
 (defmethod run-main-loop :around ((w scene2test))
   (sg::with-resource-manager ()
-    #++(setf (program w)
-             (3bgl-shaders::shader-program :vertex 's::vertex
-                                           :fragment 's::fragment))
-    (format t "rml:a st~%")
     (call-next-method)))
+
 (defmethod run-main-loop :before ((w scene2test))
-  (format t "rml:b st~%")
-  (setf *state* nil)
-  (setf (program w)
-        (3bgl-shaders::shader-program :vertex 's::vertex
-                                      :fragment 's::fragment))
-  ;;(setf (buffer w) (gl:create-buffer))
-  #++(cube (buffer w)))
+  (setf *state* nil))
 
-#++(sg::bindings (car (getf (car (second (buffer *w*))) :vertex)))
-
+(defmethod basecode-shader-helper::shader-recompiled :after ((w scene2test) s)
+  (format t "shader recompiled ~s~%" s)
+  (when (sg::program (sg::get-material (material w)))
+    (sg::update-material (material w) :repack t)
+    (let ((sg::*writer-defaults* (make-hash-table))
+          (pack (sg::calculate-packing (sg::program (sg::get-material
+                                                     (material w)))
+                                       :index 0)))
+      (setf (globals-writer w) (sg::make-writer-for-layout pack nil))
+      (setf (globals-packing w) pack))))
 
 (defparameter *no* 0)
 (defparameter *nn* 0)
@@ -94,48 +100,35 @@
             do (draw-node c :mv mv :p p :u u)))))
 
 (defmethod draw-node ((n sg::instance) &key mv p u)
-  ;;(break "o"(sg::object n))
   (when *once* (format t "draw instance ~s~%" (sg::name n)))
   (call-next-method)
   (when u (3bgl-shaders::uniform-matrix-4fv u (sb-cga:matrix* p mv)))
   (draw-object (sg::object n)))
 
 (defun draw-sg (sg mv p &key u)
-  ;;(gl:bind-vertex-array 2)
-  (let ((r (gethash "teapot.obj" (sg::index sg)))
-        (b (gethash "Base" (sg::index sg)))
-        (top (gethash "Top" (sg::index sg))))
-    (when b
-      (setf (sg::matrix b)
-            (sb-cga:matrix* (sg::matrix b)
-                            (sb-cga:rotate-around (sb-cga:normalize
-                                                   (sb-cga:vec 0.0 1.0 0.0))
-                                                  0.05))))
-    (loop for i below 1000
-          for n = (format nil "r.~d" i)
-          for r = (sg::find-node sg n)
-          for m = (gethash n (hh *w*) (sb-cga:identity-matrix))
-          when r
-            do (setf (sg::matrix r)
-                     (sb-cga:matrix* m
-                                     (sb-cga:rotate-around
-                                      (sb-cga:normalize
-                                       (sb-cga:vec 0.0 1.0 0.0))
-                                      (/ (get-internal-real-time)
-                                         (+ 1850.0 (mod (* i 1234) 1289)))))))
-    (when r
-      (setf (sg::matrix r)
-            (sb-cga:translate* 0.0
-                               (* 3 (sin (/ (get-internal-real-time) 700.0)))
-                               0.0)))
-    (when top
-      (setf (sg::matrix top)
-
-            (sb-cga:translate* 0.0
-                               (abs (* 2 (sin (/ (get-internal-real-time) 1200.0))))
-                               0.0))))
   (draw-node (sg::root sg) :mv mv :p p :u u))
 
+(defmethod bind-globals ((w scene2test))
+  (when (and (globals-writer w)
+             (globals-packing w))
+    (let* ((pack (globals-packing w))
+           (size (getf pack :base)))
+      (unless (and (globals-ssbo w)
+                   (eql size (globals-ssbo-size w)))
+        (when (globals-ssbo w)
+          (gl:delete-buffers (list (shiftf (globals-ssbo w) nil))))
+        (when size
+          (setf (globals-ssbo w) (gl:create-buffer))
+          (gl:named-buffer-storage (globals-ssbo w) nil '(:dynamic-storage)
+                                   :end size)
+          (setf (globals-ssbo-size w) size)))
+      (when size
+        (cffi:with-foreign-object (p :char size)
+          (funcall (globals-writer w) (shader-globals w) p size)
+          (%gl:named-buffer-sub-data (globals-ssbo w) 0 (globals-ssbo-size w) p)))))
+  (when (globals-ssbo w)
+    (%gl:bind-buffer-base :shader-storage-buffer sg::+globals-binding+
+                          (globals-ssbo w))))
 
 (defmethod basecode-draw ((w scene2test))
   (gl:clear-color (* 0.2 (abs (sin (/ (get-internal-real-time) 1000.0)))) 0.2 0.3 1)
@@ -143,19 +136,20 @@
   (setf *w* w)
   (setf *no* 0)
   (setf *objects* 0)
-  (when *state*
-    (scenegraph::apply-state *state* *state* :force t))
-  (let ((p (program w)))
-    (when p
-      #++(setf (3bgl-shaders::uniform p 's::mvp)
-               (sb-cga:matrix*
-                (basecode::projection-matrix w)
-                (basecode::freelook-camera-modelview w)))
-      (when (sg w)
-        (draw-sg (sg w) (basecode::freelook-camera-modelview w)
-                 (basecode::projection-matrix w)
-                 :u (getf (gethash 's::mvp (3bgl-shaders::uniforms p))
-                          :index)))))
+
+  (progn                                ;time
+    (progn
+      (when (material w)
+        (sg::bind-material (material w)))
+      (setf (gethash 's::mvp (shader-globals w))
+            (sb-cga:matrix*
+             (basecode::projection-matrix w)
+             (basecode::freelook-camera-modelview w)
+             (sb-cga:scale* 0.1 0.1 0.1)))
+      (bind-globals w)))
+  (when (sg w)
+    (draw-sg (sg w) (basecode::freelook-camera-modelview w)
+             (basecode::projection-matrix w)))
   (%gl:use-program 0)
   (let ((o *nn*))
     (setf *nn* (round (+ (* 9 *nn*) (* 1 *no*)) 10))
@@ -174,8 +168,9 @@
            (sg w) nil)
      (sg::reset-manager sg::*resource-manager*))
     (:i
-     (let* ((sg  (sg::load-object :file (asdf:system-relative-pathname
-                                         '3bgl-misc "data/teapot/teapot.obj")))
+     (let* ((sg (sg::load-object :file "d:/tmp/t/sponza.obj"
+                                 #++(asdf:system-relative-pathname
+                                     '3bgl-misc "data/teapot/teapot.obj")))
             (r (sg::root sg)))
        (sg::add-node sg 'sg::transform :root nil
                                        :matrix
@@ -186,19 +181,33 @@
        ;;(sg::dump-scenegraph (sg::root sg))
        (setf (sg w) sg)))
     (:p
-     (unless (program w)
-       (setf (program w)
-             (3bgl-shaders::shader-program :vertex 's::vertex
-                                           :fragment 's::fragment)))
-     (setf *state*
-           (scenegraph::make-state*
-            :program (program w)
-            :vertex-format (b::vertex-format-for-layout *vnc-layout*)
-            :blend-func '(:one :one-minus-src-alpha)
-            :blend nil
-            :depth-test t
-            :cull-face :back)))
+     (when (material w)
+       (let ((p (sg::program (sg::get-material (material w)))))
+         (basecode-shader-helper::forget-program p)
+         (sg::delete-material (shiftf (material w) nil))))
+
+     (let* ((p (3bgl-shaders::shader-program :vertex 's::vertex
+                                             :fragment 's::fragment))
+            (state (scenegraph::make-state*
+                    :program p
+                    :vertex-format (b::vertex-format-for-layout *vnc-layout*)
+                    :blend-func '(:one :one-minus-src-alpha)
+                    :blend nil
+                    :depth-test t
+                    :cull-face :back))
+            (mat (sg::make-material 'ai-shaders state
+                                    :count-var 's::count)))
+       (setf (material w) 'ai-shaders)
+       (sg::update-material 'ai-shaders)
+       (setf (gethash 's::c (sg::globals mat)) #(1 2 3 4))
+       (setf (gethash 's::color (sg::defaults mat)) #(1 0.5 0.2 1))
+       (let ((h (make-hash-table)))
+         (setf (gethash 's::color h) '(0.2 0.5 1 1))
+         (vector-push-extend h (sg::materials mat)))
+       (sg::update-material 'ai-shaders)))
     ((:backspace :tab)
+     (setf (basecode::projection-far w) 1000.0)
+     (basecode::update-projection w)
      (basecode::reset-freelook-camera w))
     (:l
      #++(setf (tex w)

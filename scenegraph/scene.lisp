@@ -3,7 +3,7 @@
 ;;; asset data, render state, etc that don't go directly in scenegraph
 ;;; (managed by separate 'manager' classes)
 (defclass texture ()
-  ;; represents a single texture 
+  ;; represents a single texture image
   ()
   )
 (defclass mesh ()

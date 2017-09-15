@@ -67,8 +67,9 @@
                  (when w
                    (map nil #'add w)
                    (loop for (p n) in w
-                         do (format t "add children: ~s~%"
-                                    (map nil #'n (ai:children n)))
+                         unless (zerop (length (ai:children n)))
+                           do (format t "add children1: ~s~%"
+                                      (map 'list #'n (ai:children n)))
                          do (loop for c across (ai:children n)
                                   do (push (list n c) work)))
                    (r (reverse work))))))
@@ -91,7 +92,7 @@
            (index-count (* 3 (length (ai:faces m))))
            (stride (car (last (getf format :vertex))))
            (ret nil))
-      (format t "layout = ~s~%format = ~s~%" layout format)
+      #++(format t "layout = ~s~%format = ~s~%" layout format)
       ;; fill buffer with index data and upload to GPU
       (cffi:with-foreign-object (index :unsigned-short
                                  index-count)
@@ -131,8 +132,93 @@
         (let ((bs (get-buffer-set (mapcar 'cdr
                                           (alexandria:plist-alist format)))))
           (setf (getf ret :vertex)
-                (list* bs (buffer-geometry bs count data)))))
+                (list* bs (buffer-geometry bs count data))))
+        (setf (getf ret :material) (ai:material-index m)))
       ret)))
+
+(defparameter *mat-props*
+  (alexandria:plist-hash-table
+   '("?mat.name" (name nil)
+     ;; not sure if this should default to on or off?
+     "$mat.twosided" (mat-two-sided :int 0)
+     "$mat.shadingm" (mat-shading-model :shading-mode :ai-shading-mode-phong)
+     "$mat.wireframe" (mat-wireframe :int 0)
+     "$mat.blend" (mat-blend :float 0) ;; 0=normal alpha, 1=additive
+     "$mat.opacity" (mat-opacity :float 1.0)
+     "$mat.bumpscaling" (mat-bump-scaling :float 1.0)
+     "$mat.shininess" (mat-shininess :float 0.0) ;; ?
+     "$mat.reflectivity" (mat-reflectivity :float 0.0)
+     "$mat.shinpercent" (mat-shininess-strength :float 1.0) ;; ?
+     "$mat.refracti" (mat-index-of-refraction :float 1.0)
+     "$clr.diffuse" (clr-diffuse :vec3 #(0.577 0.577 0.577))
+     "$clr.ambient" (clr-ambient :vec3 #(0.577 0.577 0.577))
+     "$clr.specular" (clr-specular :vec3 #(0.0 0.0 0.0))
+     "$clr.emissive" (clr-emissive :vec3 #(0.0 0.0 0.0))
+     "$clr.transparent" (clr-transparent :int 0)
+     "$clr.reflective" (clr-reflective :int 0)
+     "?bg.global" (:warn) ;;(global-background-image)
+     "$tex.file" (tex-file :textures nil)
+     "$tex.uvwsrc" (:warn)   ;;(tex-uvwsrc)
+     "$tex.op" (:warn)       ;;(tex-op)
+     "$tex.mapping" (:warn)  ;;(tex-mapping)
+     "$tex.blend" (:warn)    ;;(tex-blend)
+     "$tex.mapmodeu" (:warn) ;;(tex-mapmodeu)
+     "$tex.mapmodev" (:warn) ;;(tex-mapmodev)
+     "$tex.mapaxis" (:warn)  ;;(tex-mapaxis)
+     "$tex.uvtrafo" (:warn)  ;;(tex-uvtrafo)
+     "$tex.flags" (:warn)) ;;(tex-flags)
+   :test 'equalp))
+
+(defparameter *ai-shading-modes*
+  '(:ai-shading-mode-flat 1
+    :ai-shading-mode-gouraud 2
+    :ai-shading-mode-phong 3
+    :ai-shading-mode-blinn 4
+    :ai-shading-mode-toon 5
+    :ai-shading-mode-oren-nayar 6
+    :ai-shading-mode-minnaert 7
+    :ai-shading-mode-cook-torrance 8
+    :ai-shading-mode-no-shading 9
+    :ai-shading-mode-fresnel 10))
+
+(defparameter *ai-texture-type*
+  '(:ai-texture-type-none 0
+    :ai-texture-type-diffuse 1
+    :ai-texture-type-specular 2
+    :ai-texture-type-ambient 3
+    :ai-texture-type-emissive 4
+    :ai-texture-type-height 5
+    :ai-texture-type-normals 6
+    :ai-texture-type-shininess 7
+    :ai-texture-type-opacity 8
+    :ai-texture-type-displacement 9
+    :ai-texture-type-lightmap 10
+    :ai-texture-type-reflection 11
+    :ai-texture-type-unknown 12))
+
+(defun ai-translate-material (m)
+  (let ((h (make-hash-table)))
+    (loop for (n nil d) in (alexandria:hash-table-values *mat-props*)
+          when d
+            do (setf (gethash n h) d))
+    (flet ((tx (tx)
+             (destructuring-bind (&optional tt tc fn)
+                 tx
+               (list (getf *ai-texture-type* tt tt)
+                     tc
+                     (substitute #\/ #\\ fn)))))
+      (loop for k being the hash-keys of m using (hash-value v)
+            for (name type default) = (gethash k *mat-props*)
+            when (eql type :textures)
+              do (setf v (mapcar #'tx v))
+            when (eql name :warn)
+              do (format t "using unsupported material parameter ~s = ~s~%"
+                         k v)
+            else
+              do (setf (gethash name h)
+                       (if type (list type v) v))))
+    (format t "~&~{~s ~s~%~}~%" (alexandria:hash-table-plist h))
+    h))
 
 (defun translate-ai-scene (s)
   ;; todo: animations
@@ -158,7 +244,8 @@
                  when meshes
                    do (assert (not (gethash o h)))
                       (setf (gethash o h) meshes)
-                 finally (return h))))
+                 finally (return h)))
+         (materials (map 'list 'ai-translate-material (ai:materials s))))
     (loop for k being the hash-keys of objects using (hash-value v)
           for names = (gethash k groups)
           do (format t "~s @~s-> ~s~%" k names v)

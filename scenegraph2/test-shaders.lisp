@@ -8,8 +8,24 @@
 (input uv :vec2 :location 2)
 (input color :vec4 :location 3)
 
+
 ;; final output
 (output out-color :vec4 :stage :fragment)
+
+(interface globals (:buffer t :layout (:binding 0 :std430 t))
+  (v :mat4)
+  (p :mat4))
+
+(defstruct -material
+  (color :vec4))
+
+(interface -materials (:buffer t :layout (:binding 1 :std430 t))
+  (materials (-material :*))
+)
+(interface per-object (:buffer t :layout (:binding 2 :std430 t))
+  (material-id :int)
+  (gmv :mat4)
+  (gmvp :mat4))
 
 (uniform mv :mat4)
 (uniform mvp :mat4)
@@ -25,7 +41,7 @@
   (let ((p position))
     (incf (.x p) 1.0)
     (setf (.w p) 1.0)
-   (setf gl-position (* mvp p )))
+   (setf gl-position (* mvp p)))
   #++(setf (@ outs color) (vec4 normal 1.0))
   (setf (@ outs color) color)
   (setf (@ outs uv) uv)
@@ -33,8 +49,10 @@
 
 
 (defun fragment ()
-  (let ((a (.a (@ ins color))))
+  (let* ((mat (aref materials material-id))
+         (a (.a (@ ins color))))
     #++(setf out-color (vec4 (* a (.xyz (@ ins color))) a))
     #++(setf out-color (vec4 (.xy (@ ins uv)) 1 1))
-    (setf out-color (vec4 (abs (@ ins normal)) 1))
+    (setf out-color (* (@ mat color)
+                       (vec4 (abs (@ ins normal)) 1)))
     ))

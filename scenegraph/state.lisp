@@ -180,6 +180,10 @@
   ;; bindings is a list of buffer names or (buffer-name offset) lists
   ;; to bind to corresponding binding index
 
+  ;; if no OLD state, treat it as :FORCE T
+  (unless old
+    (setf old new ;; so we have a valid state to read from below
+          force t))
   (loop for o across (enables old)
         for n across (enables new)
         ;; fixme: use enum values instead of keywords to avoid runtime lookup

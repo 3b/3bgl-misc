@@ -3,7 +3,7 @@
                           glop classimp static-vectors
                           opticl com.gigamonkeys.binary-data
                           split-sequence parse-number
-                          mathkit 3bgl-shader
+                          mathkit 3bgl-shader glsl-packing
                           cl-tga-opengl)
   :serial t
   :components
@@ -102,6 +102,13 @@
              (:file "state")
              (:file "state-helper")
              (:file "scene")))
+   (:module "scenegraph2"
+            :serial t
+            :components
+            ((:file "package")
+             (:file "resource-manager")
+             (:file "file-loader")
+             (:file "scenegraph2")))
 
 ))
 

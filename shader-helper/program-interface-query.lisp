@@ -50,7 +50,7 @@
     (:tess-evaluation-subroutine-uniform :name-length :array-size :num-compatible-subroutines :compatible-subroutines :location)
     (:transform-feedback-varying :name-length :type :array-size)
     (:uniform :name-length :type :array-size :offset :block-index :array-stride :matrix-stride :is-row-major :atomic-counter-buffer-index :referenced-by-vertex-shader :referenced-by-tess-control-shader :referenced-by-tess-evaluation-shader :referenced-by-geometry-shader :referenced-by-fragment-shader :referenced-by-compute-shader)
-    (:uniform-block :name-length :buffer-binding :buffer-data-size :num-active-variables :active-variables :referenced-by-vertex-shader :referenced-by-tess-control-shader :referenced-by-tess-evaluation-shader :referenced-by-geometry-shader :referenced-by-fragment-shader :referenced-by-compute-shader :location)
+    (:uniform-block :name-length :buffer-binding :buffer-data-size :num-active-variables :active-variables :referenced-by-vertex-shader :referenced-by-tess-control-shader :referenced-by-tess-evaluation-shader :referenced-by-geometry-shader :referenced-by-fragment-shader :referenced-by-compute-shader #++ :location)
     (:vertex-subroutine :name-length)
     (:vertex-subroutine-uniform :name-length :array-size :num-compatible-subroutines :compatible-subroutines :location)))
 

@@ -139,8 +139,10 @@
          (n (apply #'make-instance type :name name :parent p initargs)))
     (when (and parent-name (not p))
       (error "couldn't find parent node ~s when adding ~s?" parent-name name))
-    (format t "creating node for ~s @ ~s (~s)~%" name parent-name p)
-    (format t "  ~s~%" initargs)
+    (format t "~%creating node for ~s @ ~s (~s)~%" name parent-name p)
+    (format t "  ~s~%" (substitute 'sb-cga:+identity-matrix+
+                                   sb-cga:+identity-matrix+ initargs
+                                   :test 'equalp))
     (add-node* sg n p)
     (format t "added node with name ~s~%" (name n))
     n))
