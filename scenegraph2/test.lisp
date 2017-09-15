@@ -19,7 +19,9 @@
    (tex :accessor tex :initform nil)
    (material :accessor material :initform nil)
    (shader-globals :reader shader-globals :initform (make-hash-table))
-   (globals-ssbo :initform nil :accessor globals-ssbo))
+   (globals-ssbo :initform nil :accessor globals-ssbo)
+   (per-object :initform (make-hash-table) :reader per-object)
+   (per-object-ssbo :initform nil :accessor per-object-ssbo))
   (:default-initargs :look-at-eye '(-97 14 -16)
                      :look-at-target '(30 28 5)
                      :projection-far 1000.0))
@@ -49,7 +51,8 @@
     (call-next-method)))
 
 (defmethod run-main-loop :before ((w scene2test))
-  (setf (globals-ssbo w) (3bgl-ssbo:make-ssbo :data (shader-globals w))))
+  (setf (globals-ssbo w) (3bgl-ssbo:make-ssbo :data (shader-globals w)))
+  (setf (per-object-ssbo w) (3bgl-ssbo:make-ssbo :data (per-object w))))
 
 (defmethod basecode-shader-helper::shader-recompiled :after ((w scene2test) s)
   (format t "shader recompiled ~s~%" s)
@@ -62,20 +65,39 @@
                                       (3bgl-shaders::ssbos p))
                                      (alexandria:hash-table-values
                                       (3bgl-shaders::structs p))
-                                     :index 0)))))
+                                     :index sg::+globals-binding+))
+      (3bgl-ssbo:update-ssbo-layout (per-object-ssbo w)
+                                    (print
+                                     (3bgl-ssbo:calculate-layout
+                                      (alexandria:hash-table-values
+                                       (3bgl-shaders::ssbos p))
+                                      (alexandria:hash-table-values
+                                       (3bgl-shaders::structs p))
+                                      :index sg::+per-object-binding+))))))
+(defmethod bind-globals ((w scene2test))
+  (3bgl-ssbo:bind-ssbo (globals-ssbo w) sg::+globals-binding+))
+
+(defmethod bind-per-object ((w scene2test))
+  ;; todo: this should probably have option to just upload data
+  ;; instead of rebinding every time too
+  (3bgl-ssbo:bind-ssbo (per-object-ssbo w) sg::+per-object-binding+))
+
 
 (defparameter *no* 0)
 (defparameter *nn* 0)
 (defparameter *objects* 0)
 
-(defun draw-object (o)
+(defun draw-object (w o)
   (incf *objects*)
   (let ((meshes o))
     (loop for mesh in meshes
           for index = (getf mesh :index)
           for (bs start count) = (getf mesh :vertex)
           for vao = (sg::vao bs)
-          do (%gl:vertex-array-element-buffer
+          do (setf (gethash 's::material-id (per-object w)) *objects*
+                   (3bgl-ssbo:dirty (per-object-ssbo w)) t)
+             (bind-per-object w)
+             (%gl:vertex-array-element-buffer
               vao (sg::vbo (sg::index-buffer sg::*resource-manager*)))
              (loop for b in (sg::bindings bs)
                    do (%gl:vertex-array-vertex-buffer
@@ -90,24 +112,21 @@
              (gl:bind-vertex-array 0))))
 
 (defparameter *once* t)
-(defmethod draw-node ((n sg::transform) &key mv p u)
+(defmethod draw-node (w (n sg::transform) &key mv p u)
   (when *once* (format t "draw xform ~s~%" (sg::name n)))
   (when (sg::children n)
     (let* ((mv (sb-cga:matrix* mv (sg::matrix n))))
       (loop for c in (sg::children n)
-            do (draw-node c :mv mv :p p :u u)))))
+            do (draw-node w c :mv mv :p p :u u)))))
 
-(defmethod draw-node ((n sg::instance) &key mv p u)
+(defmethod draw-node (w (n sg::instance) &key mv p u)
   (when *once* (format t "draw instance ~s~%" (sg::name n)))
   (call-next-method)
   (when u (3bgl-shaders::uniform-matrix-4fv u (sb-cga:matrix* p mv)))
-  (draw-object (sg::object n)))
+  (draw-object w (sg::object n)))
 
-(defun draw-sg (sg mv p &key u)
-  (draw-node (sg::root sg) :mv mv :p p :u u))
-
-(defmethod bind-globals ((w scene2test))
-  (3bgl-ssbo:bind-ssbo (globals-ssbo w) sg::+globals-binding+))
+(defun draw-sg (w sg mv p &key u)
+  (draw-node w (sg::root sg) :mv mv :p p :u u))
 
 (defmethod basecode-draw ((w scene2test))
   (gl:clear-color (* 0.2 (abs (sin (/ (get-internal-real-time) 1000.0)))) 0.2 0.3 1)
@@ -127,7 +146,9 @@
              (sb-cga:scale* 0.1 0.1 0.1)))
       (bind-globals w)
       (when (sg w)
-        (draw-sg (sg w) (basecode::freelook-camera-modelview w)
+        (draw-sg w
+                 (sg w)
+                 (basecode::freelook-camera-modelview w)
                  (basecode::projection-matrix w)))
       (%gl:use-program 0)))
   (let ((o *nn*))
@@ -190,8 +211,12 @@
      (basecode::reset-freelook-camera w))
     (:c
      (let ((mat (sg::get-material 'ai-shaders)))
-      (setf (gethash 's::color (aref (sg::materials mat) 0))
-            (print (list (random 1.0) (random 1.0) (random 1.0) 1.0)))
+       #++(setf (gethash 's::color (aref (sg::materials mat) 0))
+             (print (list (random 1.0) (random 1.0) (random 1.0) 1.0)))
+       (let ((h (make-hash-table)))
+         (setf (gethash 's::color h)
+               (list (random 1.0) (random 1.0) (random 1.0) 1.0))
+         (vector-push-extend h (sg::materials mat)))
        (setf (sg::dirty mat) t)))
     (:l
      #++(setf (tex w)
@@ -213,3 +238,4 @@
 (sg::dump-scenegraph (sg::root (sg *w*)) :id t)
 ; (basecode-run (make-instance 'scene2test :x 0))
 ; (basecode-run (make-instance 'scene2test :x 1924 :y 15))
+

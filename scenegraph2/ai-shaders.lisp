@@ -84,14 +84,16 @@
   (setf (@ outs uv) uv)
   (setf (@ outs normal) normal))
 
-
 (defun fragment ()
-  (let* ((mat (aref materials (clamp material-id 0 count)))
+  (let* ((mat (aref materials (clamp material-id 0 (1- count))))
          (a (.a (@ ins color))))
     #++(setf out-color (vec4 (* a (.xyz (@ ins color))) a))
     #++(setf out-color (vec4 (.xy (@ ins uv)) 1 1))
-    (setf out-color (* (@ mat color)
+    (setf out-color (* (vec4 1)
+                       (@ mat color)
                        (vec4 (abs (@ ins normal)) 1)))
+    (when (> material-id count)
+      (setf out-color (vec4 0.5)))
     ;(setf out-color (vec4 1 0 0 1))
     ))
 
