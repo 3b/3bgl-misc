@@ -37,9 +37,6 @@
   (gmv :mat4)
   (gmvp :mat4))
 
-(uniform mv :mat4)
-(uniform mvp :mat4)
-
 (interface varyings (:out (:vertex outs)
                      :in (:fragment ins))
   (uv :vec2)
