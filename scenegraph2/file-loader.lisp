@@ -18,18 +18,18 @@
     :pp-slm-vertex-limit 65535))
 
 (defparameter *ai-attributes*
-  `(((:vertex :vec3) ai:vertices t)
-    ((:normal :vec3) ai:normals t)
-    ((:tangent :vec3) ai:tangents t)
-    ((:bitangent :vec3) ai:bitangents t)
-    ((:color :vec4u8) ai:colors t)
-    ((:uv :vec2) ,(lambda (x) (let ((tc (ai:texture-coords x)))
+  `(((:vertex :vec3 :location 0) ai:vertices t)
+    ((:normal :vec3 :location 1) ai:normals t)
+    ((:tangent :vec3 :location 2) ai:tangents t)
+    ((:bitangent :vec3 :location 3) ai:bitangents t)
+    ((:color :vec4u8 :location 4) ai:colors t)
+    ((:uv :vec2 :location 5) ,(lambda (x) (let ((tc (ai:texture-coords x)))
                                 (if (zerop (length tc))
                                     nil
                                     (aref tc 0))))
      t)
-    ((:bones :vec4u8) ai:bones nil) ;; :ivec4ub?
-    ((:weights :vec4u8) ai:bones nil)
+    ((:bones :vec4u8 :location 6) ai:bones nil) ;; :ivec4ub?
+    ((:weights :vec4u8 :location 7) ai:bones nil)
     ;; todo: more UVs/more components?
     ))
 
@@ -94,8 +94,6 @@
            (stride (car (last (getf format :vertex))))
            (ret nil))
       (format t "layout = ~s~%format = ~s~%" layout format)
-      (unless (eql 4 (car (getf format :uv)))
-        (break "uv"))
       ;; fill buffer with index data and upload to GPU
       (cffi:with-foreign-object (index :unsigned-short
                                  index-count)

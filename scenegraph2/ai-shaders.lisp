@@ -40,8 +40,12 @@
 
 (input position :vec4 :location 0)
 (input normal :vec3 :location 1)
-(input uv :vec2 :location 4)
-(input color :vec4 :location 3)
+(input tangent :vec3 :location 2)
+(input bitangent :vec3 :location 3)
+(input color :vec4 :location 4)
+(input uv :vec2 :location 5)
+(input bones :vec4 :location 6)
+(input weights :vec4 :location 7)
 
 (output out-color :vec4 :stage :fragment)
 
