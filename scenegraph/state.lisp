@@ -402,7 +402,29 @@
       ;; building nv_command_list states)
       (3bgl-shaders::use-program program2))))
 
-
+;; some states are meaningless if not enabled, like blend-func is only
+;; used if blend is enabled, so we can remove them from 'canonical'
+;; states if corresponding enable isn't set. (possibly might need to
+;; rethink this if we add some sort of copy/inheritance ability)
+(defparameter *flagged-states*
+  (alexandria:plist-hash-table '(:blend-func :blend
+                                 :blend-equation :blend
+                                 ;; possibly also should check for
+                                 ;; stencil buffer?
+                                 :stencil-func :stencil-test
+                                 :stencil-func-front :stencil-test
+                                 :stencil-func-back :stencil-test
+                                 :stencil-op :stencil-test
+                                 :depth-func :depth-test
+                                 :depth-mask :depth-test
+                                 :sample-coverage (and :multisample
+                                                   :sample-coverage)
+                                 :primitive-restart-index :primitive-restart
+                                 :logic-op :color-logic-op
+                                 :polygon-offset (or
+                                                  :polygon-offset-fill
+                                                  :polygon-offset-line
+                                                  :polygon-offset-point))))
 
 (defmethod canonicalize-state (key value)
   ;; if key doesn't name a state var, or value is the default value,
@@ -641,12 +663,36 @@
     s))
 
 (defmethod canonicalize-state ((key (eql '%state)) value)
-  (let ((c (loop with seen = (make-hash-table)
-                 for (k v) on value by #'cddr
-                 for can = (canonicalize-state k v)
-                 when (and can (not (gethash k seen)))
-                   append can
-                 do (setf (gethash k seen) t))))
+  (let* ((index (make-hash-table))
+         (c (loop with seen = (make-hash-table)
+                  for (k v) on value by #'cddr
+                  for can = (canonicalize-state k v)
+                  when (and can (not (gethash k seen)))
+                    append can
+                    and do (setf (gethash k index) v)
+                  do (setf (gethash k seen) t))))
+    ;; get rid of settings for disabled state (blend-func without blend, etc)
+    (flet ((on (f)
+             (format t "= ~s / ~s~%"
+                     (gethash f index)
+                     (gethash f *state-defaults*))
+             (or (gethash f index)
+                 (gethash f *state-defaults*))))
+      (format t "~&index=~{~s ~s~%~^      ~}" (alexandria:hash-table-plist index))
+      (setf c
+           (loop for (k v) on c by #'cddr
+                 for f = (gethash k *flagged-states*)
+                 do (format t "~&check flagged ~s: ~s~%" k f)
+                 when (etypecase f
+                        (null t)
+                        (symbol (on f))
+                        ((cons (eql and))
+                         (loop for s in (cdr f)
+                               always (on f)))
+                        ((cons (eql or))
+                         (loop for s in (cdr f)
+                               thereis (on f))))
+                   collect k and collect v)))
     (setf c (alexandria:alist-plist
              (sort (alexandria:plist-alist c)
                    'string<
