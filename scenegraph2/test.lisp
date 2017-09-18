@@ -26,16 +26,6 @@
                      :look-at-target '(30 28 5)
                      :projection-far 1000.0))
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  ;; eval at compile time as well so vbo-builder macro can see it
-  (defparameter *vnc-layout* '((vertex :vec4)
-                               (normal :vec3)
-                               (uv :vec2)
-                               (color :vec4u8))))
-
-(defparameter *vnc-bindings* (multiple-value-list
-                              (b::calc-vbo-layout *vnc-layout*)))
-
 (defparameter *w* nil)
 
 (defparameter *scene-graph* nil)
@@ -48,7 +38,10 @@
 
 (defmethod run-main-loop :around ((w scene2test))
   (sg::with-resource-manager ()
-    (call-next-method)))
+    (let ((3bgl-shaders::*default-extensions* '(:arb-bindless-texture)))
+      (call-next-method))))
+#++
+(setf 3bgl-shaders::*default-extensions* '(:arb-bindless-texture))
 
 (defmethod run-main-loop :before ((w scene2test))
   (setf (globals-ssbo w) (3bgl-ssbo:make-ssbo :data (shader-globals w)))
@@ -92,9 +85,10 @@
   (let ((meshes o))
     (loop for mesh in meshes
           for index = (getf mesh :index)
+          for mat = (getf mesh :material)
           for (bs start count) = (getf mesh :vertex)
           for vao = (sg::vao bs)
-          do (setf (gethash 's::material-id (per-object w)) *objects*
+          do (setf (gethash 's::material-id (per-object w)) mat
                    (3bgl-ssbo:dirty (per-object-ssbo w)) t)
              (bind-per-object w)
              (%gl:vertex-array-element-buffer
@@ -162,13 +156,16 @@
 (defmethod key-down :after ((w scene2test) k)
   (case k
     #++(:c
-     (sg::load-object :default :cube))
+        (sg::load-object :default :cube))
     (:r
      (setf (buffer w) nil
            (sg w) nil)
-     (sg::reset-manager sg::*resource-manager*))
+     (sg::reset-resource-manager sg::*resource-manager*))
     (:i
-     (let* ((sg (sg::load-object :file "d:/tmp/t/sponza.obj"
+     (let ((mat (sg::get-material 'sg::ai-shaders)))
+       (sg::reset-material mat))
+     (let* ((*default-pathname-defaults* #p"d:/tmp/t/")
+            (sg (sg::load-object :file "sponza.obj"
                                  #++(asdf:system-relative-pathname
                                      '3bgl-misc "data/teapot/teapot.obj")))
             (r (sg::root sg)))
@@ -185,38 +182,20 @@
        (let ((p (sg::program (sg::get-material (material w)))))
          (basecode-shader-helper::forget-program p)
          (sg::delete-material (shiftf (material w) nil))))
-
-     (let* ((p (3bgl-shaders::shader-program :vertex 's::vertex
-                                             :fragment 's::fragment))
-            (state (scenegraph::make-state*
-                    :program p
-                    :vertex-format (b::vertex-format-for-layout *vnc-layout*)
-                    :blend-func '(:one :one-minus-src-alpha)
-                    :blend nil
-                    :depth-test t
-                    :cull-face :back))
-            (mat (sg::make-material 'ai-shaders state
-                                    :count-var 's::count)))
-       (setf (material w) 'ai-shaders)
-       (sg::update-material 'ai-shaders)
-       (setf (gethash 's::c (sg::globals mat)) #(1 2 3 4))
-       (setf (gethash 's::color (sg::defaults mat)) #(1 0.5 0.2 1))
-       (let ((h (make-hash-table)))
-         (setf (gethash 's::color h) '(0.2 0.5 1 1))
-         (vector-push-extend h (sg::materials mat)))
-       (sg::update-material 'ai-shaders)))
+     (setf (material w) (sg::ensure-ai-material)))
     ((:backspace :tab)
      (setf (basecode::projection-far w) 1000.0)
      (basecode::update-projection w)
      (basecode::reset-freelook-camera w))
     (:c
-     (let ((mat (sg::get-material 'ai-shaders)))
+     (let ((mat (sg::get-material 'sg::ai-shaders)))
        #++(setf (gethash 's::color (aref (sg::materials mat) 0))
-             (print (list (random 1.0) (random 1.0) (random 1.0) 1.0)))
-       (let ((h (make-hash-table)))
-         (setf (gethash 's::color h)
-               (list (random 1.0) (random 1.0) (random 1.0) 1.0))
-         (vector-push-extend h (sg::materials mat)))
+                (print (list (random 1.0) (random 1.0) (random 1.0) 1.0)))
+       (loop repeat 10
+             do (let ((h (make-hash-table)))
+                  (setf (gethash 's::color h)
+                        (list (random 1.0) (random 1.0) (random 1.0) 1.0))
+                  (vector-push-extend h (sg::materials mat))))
        (setf (sg::dirty mat) t)))
     (:l
      #++(setf (tex w)

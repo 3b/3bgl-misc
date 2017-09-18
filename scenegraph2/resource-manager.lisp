@@ -11,16 +11,37 @@
   ((buffers :initform (make-hash-table :test 'equalp) :reader buffers)
    (index-buffer :initform (make-instance 'index-buffer) :reader index-buffer)
    (objects :initform (make-hash-table :test 'equalp) :reader objects)
+   (textures :initform (make-hash-table :test 'equalp) :reader textures)
+   (handles :initform (make-hash-table :test 'equalp) :reader handles)
+   (samplers :initform (make-hash-table :test 'equalp) :reader samplers)
    (materials :initform (make-hash-table :test 'equalp) :reader materials)
    (previous-material :initform nil :accessor previous-material)))
 
 (defvar *resource-manager* nil)
 (defvar *foo* nil)
 
+(defun reset-resource-manager (manager)
+  (macrolet ((reset (slot fun)
+               (print
+                `(let ((v (alexandria:hash-table-values (,slot manager))))
+                   (clrhash (,slot manager))
+                   (map nil ',fun v)))))
+    (when manager
+      (reset buffers reset-buffer-set)
+      (reset objects reset-object)
+      ;; reset handles before textures and samplers
+      (reset handles reset-handle)
+      (reset textures reset-texture)
+      (reset samplers reset-sampler)
+      (reset materials reset-material)
+      (setf (previous-material manager) nil))))
+
 (defmacro with-resource-manager (() &body body)
   `(let ((*resource-manager* (make-instance 'resource-manager)))
      (setf *foo* *resource-manager*)
-     ,@body))
+     (unwind-protect
+          (progn ,@body)
+       (reset-resource-manager *resource-manager*))))
 
 (defclass vbo ()
   ((vbo :initform nil :accessor vbo)
@@ -176,7 +197,7 @@
   ;; group of meshes which are 'the same object' in some sense (shared
   ;; skeleton in particular, shared transform, possibly shared
   ;; geometry data).
-  ;;;
+
   ;; for now, assuming all culled as group
   ((parts :initarg :parts :reader parts)))
 
@@ -196,12 +217,3 @@
 
 
 
-
-(defun reset-manager (manager)
-  (let ((a (alexandria:hash-table-values (buffers manager))))
-    (clrhash (buffers manager))
-    (map nil 'reset-buffer-set a))
-  (reset-buffer (index-buffer manager))
-  (let ((a (alexandria:hash-table-values (objects manager))))
-    (clrhash (objects manager))
-    (map nil 'reset-object a)))

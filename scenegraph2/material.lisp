@@ -10,6 +10,7 @@
    (material-writer :initform nil :accessor material-writer)
    ;; lisp-side vector of material data, vector of hash tables?
    (materials :initform (make-array 16 :adjustable t :fill-pointer 0) :reader materials)
+   (material-index :initform (make-hash-table :test 'equalp) :reader material-index)
    ;; if set, names slot in material ssbo to store # of valid materials
    (count-var :initform nil :initarg :count-var :accessor count-var)
    ;; should be hash table of default values for material params
@@ -29,42 +30,63 @@
       name
       (gethash name (materials *resource-manager*))))
 
+(defun intern-material (name value)
+  (let ((m (get-material name)))
+    (or (gethash value (material-index m))
+        (setf (gethash value (material-index m))
+              (vector-push-extend value (materials m))))))
+
 (defun update-material (name &key repack)
   (let ((m (get-material name)))
     (when m
-      (when (or repack
-                (not (packing m)))
-        (let* ((packing (3bgl-ssbo:calculate-layout
-                         (alexandria:hash-table-values
-                          (3bgl-shaders::ssbos (program m)))
-                         (alexandria:hash-table-values
-                          (3bgl-shaders::structs (program m)))
-                         :index +materials-binding+))
-               (3bgl-ssbo::*writer-defaults* (make-hash-table)))
-          (setf (packing m) packing)
-          (setf (material-writer m)
-                (3bgl-ssbo::make-writer-for-layout packing (count-var m)))))
+      (restart-case
+          (progn
+            (when (or repack
+                      (not (packing m)))
+              (let* ((packing (3bgl-ssbo:calculate-layout
+                               (alexandria:hash-table-values
+                                (3bgl-shaders::ssbos (program m)))
+                               (alexandria:hash-table-values
+                                (3bgl-shaders::structs (program m)))
+                               :index +materials-binding+))
+                     (3bgl-ssbo::*writer-defaults* (make-hash-table)))
+                (setf (packing m) packing)
+                (setf (material-writer m)
+                      (3bgl-ssbo::make-writer-for-layout packing
+                                                         (count-var m)))))
 
-      (when (and (dirty m) (packing m))
-        ;; todo: don't recreate whole buffer every time. at minimum
-        ;; probably shouldn't reallocate if size is same or
-        ;; smaller. either allocate larger to start with or switch to
-        ;; mutable API and use buffer-data instead of buffer-storage
-        (when (material-ssbo m)
-          (gl:delete-buffers (list (shiftf (material-ssbo m) nil))))
-        (setf (material-ssbo m) (gl:create-buffer))
+            (when (and (dirty m) (packing m))
+              ;; todo: don't recreate whole buffer every time. at minimum
+              ;; probably shouldn't reallocate if size is same or
+              ;; smaller. either allocate larger to start with or switch to
+              ;; mutable API and use buffer-data instead of buffer-storage
+              (when (material-ssbo m)
+                (gl:delete-buffers (list (shiftf (material-ssbo m) nil))))
+              (setf (material-ssbo m) (gl:create-buffer))
 
-        (let* ((count (fill-pointer (materials m)))
-               (base (getf (packing m) :base))
-               (stride (getf (packing m) :stride))
-               (buffer-size (+ base (* count stride))))
-          (when (material-writer m)
-            (cffi:with-foreign-object (p :char buffer-size)
-              (funcall (material-writer m) (globals m) p buffer-size
-                       :entries (materials m))
-              (gl:named-buffer-storage (material-ssbo m) p () :end buffer-size))))
-        (setf (dirty m) nil)))))
+              (let* ((count (fill-pointer (materials m)))
+                     (base (getf (packing m) :base))
+                     (stride (getf (packing m) :stride))
+                     (buffer-size (+ base (* count stride))))
+                (when (material-writer m)
+                  (cffi:with-foreign-object (p :char buffer-size)
+                    (funcall (material-writer m) (globals m) p buffer-size
+                             :entries (materials m))
+                    (gl:named-buffer-storage (material-ssbo m) p ()
+                                             :end buffer-size))))
+              (setf (dirty m) nil)))
+        (reset-material ()
+          (reset-material m))))))
 
+(defun reset-material (name)
+  (let ((m (get-material name)))
+    (when m
+      (setf (fill-pointer (materials m)) 0)
+      (clrhash (material-index m))
+      (setf (dirty m) t)
+      (setf (ssbo-size m) 0)
+      (when (material-ssbo m)
+        (gl:delete-buffers (list (shiftf (material-ssbo m) nil)))))))
 
 (defun delete-material (name)
   (let ((m (get-material name)))

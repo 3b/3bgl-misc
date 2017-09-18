@@ -46,6 +46,7 @@
 
 (defclass instance (transform)
   ((object :initarg :object :accessor object)
+   #++
    (material :initarg :material :accessor material)))
 
 (defclass light (transform)
