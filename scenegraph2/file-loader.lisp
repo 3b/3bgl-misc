@@ -143,22 +143,22 @@
   (alexandria:plist-hash-table
    '("?mat.name" (name nil)
      ;; not sure if this should default to on or off?
-     "$mat.twosided" (mat-two-sided :int 0)
-     "$mat.shadingm" (mat-shading-model :shading-mode :ai-shading-mode-phong)
-     "$mat.wireframe" (mat-wireframe :int 0)
-     "$mat.blend" (mat-blend :float 0) ;; 0=normal alpha, 1=additive
-     "$mat.opacity" (mat-opacity :float 1.0)
-     "$mat.bumpscaling" (mat-bump-scaling :float 1.0)
-     "$mat.shininess" (mat-shininess :float 0.0) ;; ?
-     "$mat.reflectivity" (mat-reflectivity :float 0.0)
-     "$mat.shinpercent" (mat-shininess-strength :float 1.0) ;; ?
-     "$mat.refracti" (mat-index-of-refraction :float 1.0)
-     "$clr.diffuse" (clr-diffuse :vec3 #(0.577 0.577 0.577))
-     "$clr.ambient" (clr-ambient :vec3 #(0.577 0.577 0.577))
-     "$clr.specular" (clr-specular :vec3 #(0.0 0.0 0.0))
-     "$clr.emissive" (clr-emissive :vec3 #(0.0 0.0 0.0))
-     "$clr.transparent" (clr-transparent :int 0)
-     "$clr.reflective" (clr-reflective :int 0)
+     "$mat.twosided" (3bgl-ai-shaders::mat-two-sided :int 0)
+     "$mat.shadingm" (3bgl-ai-shaders::mat-shading-model :shading-mode :ai-shading-mode-phong)
+     "$mat.wireframe" (3bgl-ai-shaders::mat-wireframe :int 0)
+     "$mat.blend" (3bgl-ai-shaders::mat-blend :float 0) ;; 0=normal alpha, 1=additive
+     "$mat.opacity" (3bgl-ai-shaders::mat-opacity :float 1.0)
+     "$mat.bumpscaling" (3bgl-ai-shaders::mat-bump-scaling :float 1.0)
+     "$mat.shininess" (3bgl-ai-shaders::mat-shininess :float 0.0) ;; ?
+     "$mat.reflectivity" (3bgl-ai-shaders::mat-reflectivity :float 0.0)
+     "$mat.shinpercent" (3bgl-ai-shaders::mat-shininess-strength :float 1.0) ;; ?
+     "$mat.refracti" (3bgl-ai-shaders::mat-index-of-refraction :float 1.0)
+     "$clr.diffuse" (3bgl-ai-shaders::clr-diffuse :vec3 #(0.577 0.577 0.577))
+     "$clr.ambient" (3bgl-ai-shaders::clr-ambient :vec3 #(0.577 0.577 0.577))
+     "$clr.specular" (3bgl-ai-shaders::clr-specular :vec3 #(0.0 0.0 0.0))
+     "$clr.emissive" (3bgl-ai-shaders::clr-emissive :vec3 #(0.0 0.0 0.0))
+     "$clr.transparent" (3bgl-ai-shaders::clr-transparent :int 0)
+     "$clr.reflective" (3bgl-ai-shaders::clr-reflective :int 0)
      "?bg.global" (:warn) ;;(global-background-image)
      "$tex.file" (tex-file :textures nil)
      "$tex.uvwsrc" (:warn)   ;;(tex-uvwsrc)
@@ -199,19 +199,19 @@
     :ai-texture-type-reflection 11
     :ai-texture-type-unknown 12))
 
-(defparameter *texture-slots* #(tex-none
-                                tex-diffuse
-                                tex-specular
-                                tex-ambient
-                                tex-emissive
-                                tex-height
-                                tex-normals
-                                tex-shininess
-                                tex-opacity
-                                tex-displacement
-                                tex-lightmap
-                                tex-reflection
-                                tex-unknown))
+(defparameter *texture-slots* #(3bgl-ai-shaders::tex-none
+                                3bgl-ai-shaders::tex-diffuse
+                                3bgl-ai-shaders::tex-specular
+                                3bgl-ai-shaders::tex-ambient
+                                3bgl-ai-shaders::tex-emissive
+                                3bgl-ai-shaders::tex-height
+                                3bgl-ai-shaders::tex-normals
+                                3bgl-ai-shaders::tex-shininess
+                                3bgl-ai-shaders::tex-opacity
+                                3bgl-ai-shaders::tex-displacement
+                                3bgl-ai-shaders::tex-lightmap
+                                3bgl-ai-shaders::tex-reflection
+                                3bgl-ai-shaders::tex-unknown))
 
 (defparameter *tx* nil)
 
@@ -308,7 +308,8 @@
             else
               do (setf (gethash name h)
                        (if type (list type v) v))
-            finally (setf (gethash 'tex-present h) (list :int tex-present))))
+            finally (setf (gethash '3bgl-ai-shaders::tex-present h)
+                          (list :int tex-present))))
     (format t "~&mat: ~{~s ~s~%~}~%" (alexandria:hash-table-plist h))
     (format t "= ~{~s~%~^  ~}~%" (alexandria:hash-table-alist
                                   (normalize-material h)))

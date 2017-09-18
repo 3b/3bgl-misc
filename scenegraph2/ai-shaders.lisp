@@ -1,8 +1,9 @@
 #++(delete-package '3bgl-ai-shaders)
 (cl:defpackage 3bgl-ai-shaders
   (:use :3bgl-glsl/cl #++ :3bgl-material-lib-shaders)
-  (:import-from
-   #:3bgl-sg2
+  ;; define material property names so we can set them from host code
+  ;; even if shader doesn't use it
+  (:intern
    #:mat-two-sided
    #:mat-shading-model
    #:mat-wireframe
