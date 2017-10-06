@@ -1,6 +1,7 @@
 #++(delete-package '3bgl-ai-shaders)
 (cl:defpackage 3bgl-ai-shaders
-  (:use :3bgl-glsl/cl #++ :3bgl-material-lib-shaders)
+  (:use :3bgl-glsl/cl #++ :3bgl-material-lib-shaders
+        :3bgl-sg2-shaders-common)
   ;; define material property names so we can set them from host code
   ;; even if shader doesn't use it
   (:intern
@@ -49,11 +50,6 @@
 
 (output out-color :vec4 :stage :fragment)
 
-(interface globals (:buffer t :layout (:binding 0 :std430 t))
-  (foo2 :int)
-  (mvp :mat4)
-  (v :mat4)
-  (p :mat4))
 
 (defstruct -material
   (color :vec4)

@@ -107,10 +107,11 @@
             :serial t
             :components
             ((:file "package")
+             (:file "shaders-common")
+             (:file "ai-shaders")
              (:file "resource-manager")
              (:file "material")
              (:file "textures")
-             (:file "ai-shaders")
              (:file "file-loader")
              (:file "scenegraph2")))
 
