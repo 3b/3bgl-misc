@@ -19,7 +19,10 @@
 ;;; todo: either mark dirty automatically or check at runtime
    (defaults :initform (make-hash-table) :initarg :defaults :reader defaults)
    ;; hash of values for top-level slots of material ssbo
-   (globals :initform (make-hash-table) :initarg :globals :reader globals)))
+   (globals :initform (make-hash-table) :initarg :globals :reader globals)
+   ;; packing for per-object buffer (not handled directly here, but
+   ;; layout is per material)
+   (per-object-packing :initform nil :accessor per-object-packing)))
 
 ;; todo: fallback shader in case something uses undefined material
 (defmethod program ((m material))
@@ -33,14 +36,21 @@
 (defun intern-material (name value)
   (let ((m (get-material name)))
     (or (gethash value (material-index m))
-        (setf (gethash value (material-index m))
+        (setf (dirty m) t
+              (gethash value (material-index m))
               (vector-push-extend value (materials m))))))
 
+(defparameter *repack* (make-hash-table :test 'equal))
+
 (defun update-material (name &key repack)
+  (when (and *repack* (not (gethash name *repack*)))
+    (setf repack t)
+    (setf (gethash name *repack*) t))
   (let ((m (get-material name)))
     (when m
       (restart-case
           (progn
+            (3bgl-shaders::ensure-compiled (program m))
             (when (or repack
                       (not (packing m)))
               (let* ((packing (3bgl-ssbo:calculate-layout
@@ -50,10 +60,29 @@
                                 (3bgl-shaders::structs (program m)))
                                :index +materials-binding+))
                      (3bgl-ssbo::*writer-defaults* (make-hash-table)))
+                (unless (equal packing (packing m))
+                  (setf (dirty m) t))
                 (setf (packing m) packing)
                 (setf (material-writer m)
                       (3bgl-ssbo::make-writer-for-layout packing
                                                          (count-var m)))))
+            (unless (typep (per-object-packing m)
+                           '3bgl-ssbo::ssbo-layout/static)
+              (setf (per-object-packing m)
+                    (make-instance '3bgl-ssbo::ssbo-layout/static)))
+            (when (or repack
+                      (not (3bgl-ssbo::packing
+                            (per-object-packing m))))
+              (let* ((packing (3bgl-ssbo:calculate-layout
+                               (alexandria:hash-table-values
+                                (3bgl-shaders::ssbos (program m)))
+                               (alexandria:hash-table-values
+                                (3bgl-shaders::structs (program m)))
+                               :index +per-object-binding+))
+                     (3bgl-ssbo::*writer-defaults* (make-hash-table)))
+                (setf (3bgl-ssbo::packing
+                       (per-object-packing m))
+                      packing)))
 
             (when (and (dirty m) (packing m))
               ;; todo: don't recreate whole buffer every time. at minimum
@@ -70,6 +99,8 @@
                      (buffer-size (+ base (* count stride))))
                 (when (material-writer m)
                   (cffi:with-foreign-object (p :char buffer-size)
+                    (loop for i below buffer-size
+                          do (setf (cffi:mem-aref p :unsigned-char i) 0))
                     (funcall (material-writer m) (globals m) p buffer-size
                              :entries (materials m))
                     (gl:named-buffer-storage (material-ssbo m) p ()
@@ -109,10 +140,9 @@
     ;; not sure if missing material should be an error here or not?
     ;; possibly should load some debug material instead, with option
     ;; to error?
+    #++(assert m)
 
-    ;;(assert m)
     (when (and m (program m))
-      (3bgl-shaders::use-program (program m))
       (when (dirty m)
         (update-material m))
       (when (material-ssbo m)
@@ -122,5 +152,4 @@
                                (when (previous-material *resource-manager*)
                                  (state
                                   (previous-material *resource-manager*))))
-
       (setf (previous-material *resource-manager*) m))))

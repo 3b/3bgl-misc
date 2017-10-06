@@ -42,7 +42,8 @@
    (children :initform nil :initarg :children :accessor children)))
 
 (defclass transform (node)
-  ((matrix :initarg :matrix :accessor matrix)))
+  ((matrix :initarg :matrix :accessor matrix
+           :initform sb-cga:+identity-matrix+)))
 
 (defclass instance (transform)
   ((object :initarg :object :accessor object)
@@ -140,11 +141,14 @@
          (n (apply #'make-instance type :name name :parent p initargs)))
     (when (and parent-name (not p))
       (error "couldn't find parent node ~s when adding ~s?" parent-name name))
+    #++
     (format t "~%creating node for ~s @ ~s (~s)~%" name parent-name p)
+    #++
     (format t "  ~s~%" (substitute 'sb-cga:+identity-matrix+
                                    sb-cga:+identity-matrix+ initargs
                                    :test 'equalp))
     (add-node* sg n p)
+    #++
     (format t "added node with name ~s~%" (name n))
     n))
 
@@ -191,3 +195,24 @@
 ;; light property animation (including time of day for sun)
 
 ;; keyboard/gamepad control
+
+(defun add-object-to-draw-list (meshes matrix)
+  (loop for mesh in meshes
+        for index = (getf mesh :index)
+        for (mat-name mat-index) = (getf mesh :material)
+        for vertex = (getf mesh :vertex)
+        do (add-draw mat-name mat-index index vertex matrix)))
+
+(defmethod draw-node ((n transform) &key mv)
+  (when (children n)
+    (let* ((mv (sb-cga:matrix* mv (matrix n))))
+      (loop for c in (children n)
+            do (draw-node c :mv mv)))))
+
+(defmethod draw-node ((n instance) &key mv)
+  (call-next-method)
+  (add-object-to-draw-list (object n) mv))
+
+(defun draw-sg (sg mv)
+  (draw-node (root sg) :mv mv)
+  (submit-draws))

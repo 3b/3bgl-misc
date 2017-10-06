@@ -22,34 +22,48 @@
     ((:normal :vec3 :location 1) ai:normals t)
     ((:tangent :vec3 :location 2) ai:tangents t)
     ((:bitangent :vec3 :location 3) ai:bitangents t)
-    ((:color :vec4u8 :location 4) ai:colors t)
+    #++((:color :vec4u8 :location 4) ai:colors t)
+    ((:color :vec4u8 :location 4) ,(lambda (x) (let ((c (ai:colors x)))
+                                                 (if (zerop (length c))
+                                                     nil
+                                                     (aref c 0))))
+     t)
     ((:uv :vec2 :location 5) ,(lambda (x) (let ((tc (ai:texture-coords x)))
-                                (if (zerop (length tc))
-                                    nil
-                                    (aref tc 0))))
+                                            (if (zerop (length tc))
+                                                nil
+                                                (aref tc 0))))
      t)
     ((:bones :vec4u8 :location 6) ai:bones nil) ;; :ivec4ub?
     ((:weights :vec4u8 :location 7) ai:bones nil)
     ;; todo: more UVs/more components?
     ))
 
+(defvar *ai-shader-program*)
+(defparameter *ai-material-defaults* '(:blend-func (:one :one-minus-src-alpha)
+                                       :blend nil
+                                       :depth-test t
+                                       :cull-face :back))
 
+(defun ai-material-name (blend format)
+  (intern (format nil "~:@(ai-material/~{~a/~}~a~)"
+                  (loop for (a nil) on format by #'cddr collect a)
+                  blend)
+          '3bgl-sg2))
 
-(defun translate-ai-nodes (root)
+(defun translate-ai-nodes (root &key sg parent-node)
   (let ((i 0)
         ;; name -> index + node
         (h (make-hash-table :test 'equalp))
         ;; set of meshes -> names of nodes using that set
         (objects (make-hash-table :test 'equalp))
         (work nil)
-        (sg (make-instance 'scenegraph)))
+        (sg (or sg (make-instance 'scenegraph))))
     (labels ((add (w)
                (let* ((p (first w))
                       (n (second w))
                       (name (ai:name n))
-                      (pname (and p (ai:name p))))
-                 (format t "~& add node ~a @ ~a~%"
-                         name pname)
+                      (pname (or (and p (ai:name p))
+                                 parent-node)))
                  (setf (gethash name h)
                        (list i n))
                  (add-node sg 'transform (ai:name n) pname
@@ -63,12 +77,11 @@
                                  ((consp n) (mapcar #'n n))
                                  (n (ai:name n))
                                  (t n))))
-                 (format t "~%recurse: ~s~%" (mapcar #'n w))
                  (when w
                    (map nil #'add w)
                    (loop for (p n) in w
                          unless (zerop (length (ai:children n)))
-                           do (format t "add children1: ~s~%"
+                           #+do (format t "add children1: ~s~%"
                                       (map 'list #'n (ai:children n)))
                          do (loop for c across (ai:children n)
                                   do (push (list n c) work)))
@@ -76,6 +89,20 @@
       (setf work (list (list nil root)))
       (r work)
       (list sg objects))))
+
+(defun expand-material (format material)
+  (let* ((state (scenegraph::make-state (list* :vertex-format
+                                               (mapcar 'cdr
+                                                       (alexandria:plist-alist
+                                                        format))
+                                               :sample-alpha-to-coverage
+                                               (getf material :blend)
+                                               *ai-material-defaults*)))
+         (name (ai-material-name (getf material :blend) format))
+         (mat (or (get-material name)
+                  (make-material name state
+                                 :count-var '3bgl-ai-shaders::count))))
+    (list name (intern-material mat (getf material :properties)))))
 
 (defun translate-ai-mesh (m skel materials)
   (declare (ignore skel))
@@ -93,7 +120,6 @@
            (index-count (* 3 (length (ai:faces m))))
            (stride (car (last (getf format :vertex))))
            (ret nil))
-      (format t "layout = ~s~%format = ~s~%" layout format)
       ;; fill buffer with index data and upload to GPU
       (cffi:with-foreign-object (index :unsigned-short
                                  index-count)
@@ -113,28 +139,31 @@
           for ctype = (gl::symbolic-type->real-type gltype)
           for (layout f simple) = (assoc n *ai-attributes* :key 'car)
           when simple
-            do (loop
+            do (loop 
                  for v across (funcall f m)
                  for i from offset by stride
                  do (loop
                       for j below ecount
                       do (assert (< (+ i
-                                       (* (1+ j)
-                                          (cffi:foreign-type-size ctype)))
+                                        (* (1+ j)
+                                           (cffi:foreign-type-size ctype)))
                                     (* (1+ count) stride)))
                       do (setf (cffi:mem-aref (cffi:inc-pointer data i)
                                               ctype j)
                                (ecase gltype
-                                 (:byte (* (aref v j) 127))
+                                 (:byte (floor (* (aref v j) 127)))
                                  (:unsigned-byte (if norm
-                                                     (* 255 (aref v j))
+                                                     (floor
+                                                      (* 255 (aref v j)))
                                                      (aref v j)))
                                  (:float (aref v j)))))))
         (let ((bs (get-buffer-set (mapcar 'cdr
                                           (alexandria:plist-alist format)))))
           (setf (getf ret :vertex)
                 (list* bs (buffer-geometry bs count data))))
-        (setf (getf ret :material) (aref materials (ai:material-index m))))
+        (setf (getf ret :material)
+              (expand-material format
+                               (aref materials (ai:material-index m)))))
       ret)))
 
 (defparameter *mat-props*
@@ -234,7 +263,6 @@
                  (and (= (car a) (car b))
                       (< (cadr a) (cadr b)))))
            (normalize-value (value type)
-             ;;(format t "normalize ~s ~s~%" value type)
              (ecase type
                (:int value)
                (:float (coerce value 'single-float))
@@ -261,7 +289,6 @@
        (loop for (n . tv) in (sort a 'string<
                                    :key (lambda (a) (symbol-name (car a))))
              for (type value) = (when (consp tv) tv)
-                                        ;do (format t "~s -> ~s~%" n tv)
              when (eql n 'name)
                do (setf name tv)
              else collect (cons n (normalize-value value type)))))))
@@ -308,17 +335,30 @@
                        (if type (list type v) v))
             finally (setf (gethash '3bgl-ai-shaders::tex-present h)
                           (list :int tex-present))))
-    (format t "~&mat: ~{~s ~s~%~}~%" (alexandria:hash-table-plist h))
-    (format t "= ~{~s~%~^  ~}~%" (alexandria:hash-table-alist
-                                  (normalize-material h)))
-    ;; possibly should load textures now instead of on use
-    (intern-material 'ai-shaders (normalize-material h))))
+    (let* ((n (normalize-material h))
+           ;; todo: check for alpha channel in diffuse texture?...
+           ;; hard to do here without doing a bunch of extra
+           ;; filesystem work though... probably have to add some
+           ;; external metadata if that case ends up mattering
+           (blend (or (plusp (gethash '3bgl-ai-shaders::tex-opacity n))
+                      (< (gethash '3bgl-ai-shaders::mat-opacity n) 1.0))))
+      (list :blend blend :properties n))))
 
-(defun translate-ai-scene (s)
+(defun unique-names (root)
+  (let ((c 0))
+    (labels ((r (n)
+               (setf (ai:name n) (format nil "~a.~a" (incf c) (ai:name n)))
+               (map nil #'r (ai:children n))))
+      (r root))
+    root))
+
+(defun translate-ai-scene (s &key sg parent-node)
   ;; todo: animations
   ;; todo: lights
   ;; todo: cameras
-  (let* ((nodes/groups (translate-ai-nodes (ai:root-node s)))
+  (let* ((nodes/groups (translate-ai-nodes (unique-names
+                                            (ai:root-node s))
+                                           :sg sg :parent-node parent-node))
          (sg (first nodes/groups))
          (groups (second nodes/groups))
          ;; todo: build a 'skeleton' for each node = hash of each node
@@ -342,10 +382,8 @@
                    do (assert (not (gethash o h)))
                       (setf (gethash o h) meshes)
                  finally (return h))))
-    (format t "objects=~s~%" (alexandria:hash-table-alist objects))
     (loop for k being the hash-keys of objects using (hash-value v)
           for names = (gethash k groups)
-          do (format t "~s @~s-> ~s~%" k names v)
           do (loop for n in names
                    do (convert-transform-to-instance sg n v)))
     sg))
@@ -361,40 +399,18 @@
 (defparameter *vnc-bindings* (multiple-value-list
                               (buffer-builder::calc-vbo-layout *vnc-layout*)))
 
-(defun ensure-ai-material ()
-  (let* ((p (3bgl-shaders::shader-program :vertex '3bgl-ai-shaders::vertex
-                                          :fragment '3bgl-ai-shaders::fragment))
-         (state (scenegraph::make-state*
-                 :program p
-                 :vertex-format (buffer-builder::vertex-format-for-layout
-                                 *vnc-layout*)
-                 :blend-func '(:one :one-minus-src-alpha)
-                 :blend nil
-                 :depth-test t
-                 :cull-face :back))
-         (mat (make-material 'ai-shaders state
-                             :count-var '3bgl-ai-shaders::count)))
-    (make-material 'ai-shaders/blend
-                   (scenegraph::make-state*
-                    :program p
-                    :vertex-format (buffer-builder::vertex-format-for-layout
-                                    *vnc-layout*)
-                    :blend-func '(:one :one-minus-src-alpha)
-                    :blend t
-                    :depth-test t
-                    :cull-face :back)
-                   :count-var '3bgl-ai-shaders::count)
-    'ai-shaders))
-
-(defmethod load-object ((loader (eql :file)) name)
+(defmethod load-object ((loader (eql :file)) name &key sg parent-node)
   ;; todo: load files on another thread, just draw nothing until loaded
   ;; (possibly draw debug scene until fully loaded?)
-  (ensure-ai-material)
-  (let ((o (assimp:import-into-lisp
-            (merge-pathnames name)
-            :processing-flags *ai-loader-post-processing*
-            :properties *ai-loader-properties*)))
-    (translate-ai-scene o)))
+  (let ((*ai-material-defaults*
+          (list* :program (get-program :vertex '3bgl-ai-shaders::vertex
+                                       :fragment '3bgl-ai-shaders::fragment)
+                 *ai-material-defaults*)))
+    (let ((o (assimp:import-into-lisp
+              (merge-pathnames name)
+              :processing-flags *ai-loader-post-processing*
+              :properties *ai-loader-properties*)))
+      (translate-ai-scene o :sg sg :parent-node parent-node))))
 
 
 #++

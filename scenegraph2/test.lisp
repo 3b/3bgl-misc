@@ -13,15 +13,7 @@
                       scenegraph::scenegraph-state-helper
                       perspective-projection
                       basecode::fps)
-  ((sg :accessor sg :initform nil)
-   (buffer :accessor buffer :initform nil)
-   (hh :initform (make-hash-table :test 'equal) :accessor hh)
-   (tex :accessor tex :initform nil)
-   (material :accessor material :initform nil)
-   (shader-globals :reader shader-globals :initform (make-hash-table))
-   (globals-ssbo :initform nil :accessor globals-ssbo)
-   (per-object :initform (make-hash-table) :reader per-object)
-   (per-object-ssbo :initform nil :accessor per-object-ssbo))
+  ((sg :accessor sg :initform nil))
   (:default-initargs :look-at-eye '(-97 14 -16)
                      :look-at-target '(30 28 5)
                      :projection-far 1000.0))
@@ -40,181 +32,169 @@
   (sg::with-resource-manager ()
     (let ((3bgl-shaders::*default-extensions* '(:arb-bindless-texture)))
       (call-next-method))))
-#++
-(setf 3bgl-shaders::*default-extensions* '(:arb-bindless-texture))
-
-(defmethod run-main-loop :before ((w scene2test))
-  (setf (globals-ssbo w) (3bgl-ssbo:make-ssbo :data (shader-globals w)))
-  (setf (per-object-ssbo w) (3bgl-ssbo:make-ssbo :data (per-object w))))
-
-(defmethod basecode-shader-helper::shader-recompiled :after ((w scene2test) s)
-  (format t "shader recompiled ~s~%" s)
-  (let ((p (sg::program (sg::get-material (material w)))))
-    (when p
-      (sg::update-material (material w) :repack t)
-      (3bgl-ssbo:update-ssbo-layout (globals-ssbo w)
-                                    (3bgl-ssbo:calculate-layout
-                                     (alexandria:hash-table-values
-                                      (3bgl-shaders::ssbos p))
-                                     (alexandria:hash-table-values
-                                      (3bgl-shaders::structs p))
-                                     :index sg::+globals-binding+))
-      (3bgl-ssbo:update-ssbo-layout (per-object-ssbo w)
-                                    (print
-                                     (3bgl-ssbo:calculate-layout
-                                      (alexandria:hash-table-values
-                                       (3bgl-shaders::ssbos p))
-                                      (alexandria:hash-table-values
-                                       (3bgl-shaders::structs p))
-                                      :index sg::+per-object-binding+))))))
-(defmethod bind-globals ((w scene2test))
-  (3bgl-ssbo:bind-ssbo (globals-ssbo w) sg::+globals-binding+))
-
-(defmethod bind-per-object ((w scene2test))
-  ;; todo: this should probably have option to just upload data
-  ;; instead of rebinding every time too
-  (3bgl-ssbo:bind-ssbo (per-object-ssbo w) sg::+per-object-binding+))
-
-
-(defparameter *no* 0)
-(defparameter *nn* 0)
-(defparameter *objects* 0)
-
-(defun draw-object (w o)
-  (incf *objects*)
-  (let ((meshes o))
-    (loop for mesh in meshes
-          for index = (getf mesh :index)
-          for mat = (getf mesh :material)
-          for (bs start count) = (getf mesh :vertex)
-          for vao = (sg::vao bs)
-          do (setf (gethash 's::material-id (per-object w)) mat
-                   (3bgl-ssbo:dirty (per-object-ssbo w)) t)
-             (bind-per-object w)
-             (%gl:vertex-array-element-buffer
-              vao (sg::vbo (sg::index-buffer sg::*resource-manager*)))
-             (loop for b in (sg::bindings bs)
-                   do (%gl:vertex-array-vertex-buffer
-                       vao (sg::index b) (sg::vbo b)
-                       (sg::offset b) (sg::stride b)))
-             (gl:bind-vertex-array VAO)
-             (incf *no* (second index))
-             (%gl:draw-elements-base-vertex :triangles (second index)
-                                            :unsigned-short
-                                            (* 2 (first index))
-                                            start)
-             (gl:bind-vertex-array 0))))
-
 (defparameter *once* t)
-(defmethod draw-node (w (n sg::transform) &key mv p u)
-  (when *once* (format t "draw xform ~s~%" (sg::name n)))
-  (when (sg::children n)
-    (let* ((mv (sb-cga:matrix* mv (sg::matrix n))))
-      (loop for c in (sg::children n)
-            do (draw-node w c :mv mv :p p :u u)))))
 
-(defmethod draw-node (w (n sg::instance) &key mv p u)
-  (when *once* (format t "draw instance ~s~%" (sg::name n)))
-  (call-next-method)
-  (when u (3bgl-shaders::uniform-matrix-4fv u (sb-cga:matrix* p mv)))
-  (draw-object w (sg::object n)))
-
-(defun draw-sg (w sg mv p &key u)
-  (draw-node w (sg::root sg) :mv mv :p p :u u))
+(defparameter *dt* (cons 0.0 0))
 
 (defmethod basecode-draw ((w scene2test))
-  (gl:clear-color (* 0.2 (abs (sin (/ (get-internal-real-time) 1000.0)))) 0.2 0.3 1)
-  (gl:clear :color-buffer :depth-buffer)
-  (setf *w* w)
-  (setf *no* 0)
-  (setf *objects* 0)
+  (unwind-protect
+       (progn
+         (gl:enable :multisample)
+         (let ((start (basecode::now)))
+           (gl:clear-color (* 0.2 (abs (sin (/ (get-internal-real-time) 1000.0)))) 0.2 0.3 1)
+           (gl:clear :color-buffer :depth-buffer)
+           (setf *w* w)
 
-  (progn                                ;time
-    (progn
-      (when (material w)
-        (sg::bind-material (material w)))
-      (setf (gethash 's::mvp (shader-globals w))
-            (sb-cga:matrix*
-             (basecode::projection-matrix w)
-             (basecode::freelook-camera-modelview w)
-             (sb-cga:scale* 0.1 0.1 0.1)))
-      (bind-globals w)
-      (when (sg w)
-        (draw-sg w
-                 (sg w)
-                 (basecode::freelook-camera-modelview w)
-                 (basecode::projection-matrix w)))
-      (%gl:use-program 0)))
-  (let ((o *nn*))
-    (setf *nn* (round (+ (* 9 *nn*) (* 1 *no*)) 10))
-    (when (= *nn* o)
-      (setf *nn* *no*)))
-  (setf *once* nil))
+           (progn ;;time
+             (progn
+               (sg::set-global 's::v
+                               (basecode::freelook-camera-modelview w))
+               (sg::set-global 's::p
+                               (basecode::projection-matrix w))
+               (let ((vp (sb-cga:matrix*
+                          (basecode::projection-matrix w)
+                          (basecode::freelook-camera-modelview w))))
+                 (sg::set-global 's::vp vp)
+                 (sg::set-global 's::mvp vp))
+
+               (when (sg w)
+                 (sg::draw-sg (sg w) (sb-cga:identity-matrix)))))
+           (let ((dt (- (basecode::now) start)))
+             (incf (car *dt*) dt)
+             (incf (cdr *dt*)))))
+    (setf *once* nil)))
+
+(defun add-object (w name path &key (transform (sb-cga:identity-matrix)))
+  (let* ((sg (sg w)))
+    (unless sg
+      (setf (sg w) (make-instance 'sg::scenegraph)
+            sg (sg w))
+      (sg::add-node sg 'sg::transform :root nil :matrix transform))
+    (when (sg::find-node sg name)
+      (sg::remove-node (sg::find-node sg name)))
+    (sg::add-node sg 'sg::transform name :root)
+    (sg::load-object :file path :sg sg :parent-node name)))
 
 ;; *w* scenegraph::*v*
 ;; (setf *state* nil)
+
+(defun degrees (x) (float (* x (/ pi 180)) 1.0))
+
 (defmethod key-down :after ((w scene2test) k)
   (case k
-    #++(:c
-        (sg::load-object :default :cube))
     (:r
-     (setf (buffer w) nil
-           (sg w) nil)
+     (setf (sg w) nil)
      (sg::reset-resource-manager sg::*resource-manager*))
     (:i
      (let ((mat (sg::get-material 'sg::ai-shaders)))
        (sg::reset-material mat))
      (let* ((*default-pathname-defaults* #p"d:/tmp/t/")
-            (sg (sg::load-object :file "sponza.obj"
-                                 #++(asdf:system-relative-pathname
-                                     '3bgl-misc "data/teapot/teapot.obj")))
+            (sg (sg::load-object :file "sponza.obj"))
             (r (sg::root sg)))
        (sg::add-node sg 'sg::transform :root nil
                                        :matrix
-                                       (sb-cga:scale* 0.1 0.1 0.1)
-                                       #++(sb-cga:identity-matrix)
-                                       #++(sb-cga:translate* 1.0 0.0 0.0))
+                                       (sb-cga:scale* 0.1 0.1 0.1))
        (sg::add-node* sg r (sg::root sg))
-       ;;(sg::dump-scenegraph (sg::root sg))
        (setf (sg w) sg)))
-    (:p
-     (when (material w)
-       (let ((p (sg::program (sg::get-material (material w)))))
-         (basecode-shader-helper::forget-program p)
-         (sg::delete-material (shiftf (material w) nil))))
-     (setf (material w) (sg::ensure-ai-material)))
     ((:backspace :tab)
      (setf (basecode::projection-far w) 1000.0)
      (basecode::update-projection w)
      (basecode::reset-freelook-camera w))
-    (:c
-     (let ((mat (sg::get-material 'sg::ai-shaders)))
-       #++(setf (gethash 's::color (aref (sg::materials mat) 0))
-                (print (list (random 1.0) (random 1.0) (random 1.0) 1.0)))
-       (loop repeat 10
-             do (let ((h (make-hash-table)))
-                  (setf (gethash 's::color h)
-                        (list (random 1.0) (random 1.0) (random 1.0) 1.0))
-                  (vector-push-extend h (sg::materials mat))))
-       (setf (sg::dirty mat) t)))
     (:l
-     #++(setf (tex w)
-              (list
-               (sg::load-texture
-                (asdf:system-relative-pathname
-                 '3bgl-misc "data/debug-texture.png"))
-               (sg::load-texture
-                (asdf:system-relative-pathname
-                 '3bgl-misc "data/debug-bump-texture.png")))))
+     (let* ((*default-pathname-defaults* #p"d:/tmp/t/bunny/"))
+       (add-object w :bunny "bunny.obj")
+       (setf (sg::matrix (sg::find-node (sg w) :bunny))
+             (sb-cga:matrix* (sb-cga:scale* 40.0 40.0 40.0)
+                             (sb-cga:translate* 0.0 1.0 0.0)))))
     (:space
+     (setf (sg::previous-material sg::*resource-manager*) nil)
      (let ((fps (basecode::average-fps w)))
        (format t "~&~,,',,3:d objects, ~,,',,3:d tris @ fps: ~s = ~sms~%"
-               *objects* *no* (float fps 1.0)
-               (when (> fps 0.001) (float (/ fps) 1.0)))))))
+               sg::*objects* sg::*no* (float fps 1.0)
+               (when (> fps 0.001) (float (/ fps) 1.0)))
+       (format t "~,,,3:d objects/sec ~,,,3:d tris/sec~%"
+               (floor (* fps sg::*objects*)) (floor (* fps sg::*no*)))))
+    (:v
+     (loop with sg = (sg w)
+           with r = 300.0
+           for i below 1000
+           for pos = (sb-cga:vec (- (random r) (/ r 2))
+                                 (- (random r) (/ r 2))
+                                 (- (random r) (/ r 2)))
+           for n = (sg::add-node sg 'sg::transform
+                                 (format nil "~s.~s" (get-universal-time) i)
+                                 :root :matrix (sb-cga:translate pos))
+           do (sg::add-node* sg (sg::copy-node (sg::find-node sg :bunny))
+                             n)
+           ))
+    (:1
+     (let* ((*default-pathname-defaults* #p"d:/tmp/t/erato/"))
+       (add-object w :erato "erato-1.obj")
+       (setf (sg::matrix (sg::find-node (sg w) :erato))
+             (sb-cga:matrix* (sb-cga:scale* 5.0 5.0 5.0)
+                             (sb-cga:translate* 30.0 0.0 -15.0)
+                             (sb-cga:rotate* 0.0
+                                             (float (/ pi -1.5) 1.0)
+                                             0.0)
+                             (sb-cga:rotate* (float (/ pi 2) 1.0)
+                                             0.0
+                                             0.0)
+                             (sb-cga:translate* 11439.0 13000.0 12729.0)))))
+    (:2
+     (let* ((*default-pathname-defaults* #p"d:/tmp/t/lpshead/"))
+       (add-object w :head "head.OBJ")
+       (setf (sg::matrix (sg::find-node (sg w) :head))
+             (sb-cga:matrix* (sb-cga:scale* 200.0 200.0 200.0)
+                             (sb-cga:rotate* 0.0 (degrees -90) 0.0)
+                             (sb-cga:translate* -0.5 0.250 0.50)))))
+    (:3
+     (let* ((*default-pathname-defaults* #p"d:/tmp/t/sportsCar/"))
+       (add-object w :sportscar "sportsCar.obj")
+       (setf (sg::matrix (sg::find-node (sg w) :sportscar))
+             (sb-cga:matrix* (sb-cga:scale* 100.0 100.0 100.0)
+                             (sb-cga:rotate* 0.0 (degrees -90) 0.0)
+                             (sb-cga:translate* -0.5 0.250 0.50)))))
+    (:9
+     (time
+      (let* ((*default-pathname-defaults* #p"d:/tmp/t/Bistro/Bistro/"))
+        (add-object w :bistro "Bistro_Research_Interior.fbx")
+        (setf (sg::matrix (sg::find-node (sg w) :bistro))
+              (sb-cga:matrix* (sb-cga:scale* 0.1 0.1 0.1))))))
+    (:0
+     (time
+      (let* ((*default-pathname-defaults* #p"d:/tmp/t/Bistro/Bistro/"))
+        (add-object w :bistrox "Bistro_Research_Exterior.fbx"
+        #++(setf (sg::matrix (sg::find-node (sg w) :bistrox))
+                 (sb-cga:matrix* (sb-cga:scale* 0.1 0.1 0.1)))))))
+    (:5
+     (glop:swap-interval (basecode::%glop-window w) 0)
+     (glop::%swap-interval (basecode::%glop-window w) 0))
+    (:4 (setf (sg::matrix (sg::find-node (sg w) :bistro))
+              (sb-cga:matrix* (sb-cga:scale* 0.1 0.1 0.1)
+                              (sb-cga:rotate* 0.0 0.0 (degrees 90)))))))
+
+#++
+(loop for (name . node) in (alexandria:hash-table-alist (sg::index (sg *w*)))
+      when (and (typep node 'sg::transform)
+                (not (sb-cga:matrix~ (sg::matrix node)
+                                     sb-cga:+identity-matrix+)
+                     ))
+        do (setf  (sg::matrix node) (sb-cga:transpose-matrix (sg::matrix node)))
+        and collect (list name node))
+#++
+(let ((root (sg::find-node (sg *w*) "2.Bistro_Interior")))
+  (labels ((r (n)
+             (format t "transpose ~s~%" (sg::base-name n))
+             (setf (sg::matrix n) (sb-cga:transpose-matrix (sg::matrix n)))
+             (mapcar #'r (sg::children n))
+             ))
+    (r root)))
 
 (setf 3bgl-shaders::*print-shaders* t)
+(setf 3bgl-shaders::*default-version* 460)
 #++
 (sg::dump-scenegraph (sg::root (sg *w*)) :id t)
 ; (basecode-run (make-instance 'scene2test :x 0))
 ; (basecode-run (make-instance 'scene2test :x 1924 :y 15))
+
 

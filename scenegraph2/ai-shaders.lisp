@@ -74,8 +74,8 @@
   (tex-height :sampler-2d)
   (tex-opacity :sampler-2d)
   (tex-specular :sampler-2d)
-  (tex-present :int)
-  )
+  (tex-normals :sampler-2d)
+  (tex-present :int))
 
 (interface -materials (:buffer t :layout (:binding 1 :std430 t))
   (z :bool)
@@ -83,20 +83,25 @@
   (count :int)
   (b :vec3)
   (c :vec4)
-  (materials (-material :*))
-)
+  (materials (-material :*)))
 
-(interface per-object (:buffer t :layout (:binding 2 :std430 t))
+(defstruct -per-object
   (material-id :int)
-  (m :mat4)
-  (gmv :mat4)
-  (gmvp :mat4))
+  (m :mat4))
+
+(interface -objects (:buffer t :layout (:binding 2 :std430 t))
+  (object-count :int) ;; not sure if this will be used or not
+  (objects (-per-object :*)))
 
 (interface varyings (:out (:vertex outs)
                      :in (:fragment ins))
   (uv :vec2)
   (color :vec4)
   (normal :vec3))
+
+;; not sure :flat qualifier is required/valid on vs output?
+(output material-id :int :stage :vertex); :qualifiers (:flat)
+(input material-id :int :stage :fragment :qualifiers (:flat))
 
 
 (defconstant +flat-shading+ 1 :int)
@@ -126,16 +131,19 @@
 (defconstant +reflection-texture+ 11 :int)
 (defconstant +unknown-texture+ 12 :int)
 
-
-
 (defun vertex ()
-  (let ((pos position))
+  (let* ((pos position)
+         (draw-id gl-draw-id)
+         (po (aref objects draw-id))
+         (m (@ po m)))
     (setf (.w pos) 1.0)
-    ;(setf gl-position (* p v m pos))
-    (setf gl-position (* mvp pos)))
+    (setf gl-position (* vp m pos))
+    ;;(setf gl-position (* vp pos))
+    (setf material-id (@ po material-id)))
   #++(setf (@ outs color) (vec4 normal 1.0))
   (setf (@ outs color) color)
   (setf (@ outs uv) uv)
+  ;;(setf (.y (@ outs uv)) (- 1 (.y uv)))
   (setf (@ outs normal) normal))
 
 (defstruct texture-samples
@@ -143,7 +151,8 @@
   (ambient :vec4)
   (height :vec4)
   (opacity :vec4)
-  (specular :vec4))
+  (specular :vec4)
+  (normals :vec4))
 
 (defmacro texture-mask (&rest textures)
   (let ((tx '(:none 0
@@ -159,8 +168,8 @@
               :lightmap 10
               :reflection 11
               :unknown 12)))
-   (loop for i in textures
-         sum (ash 1 (getf tx i)))))
+    (loop for i in textures
+          sum (ash 1 (getf tx i)))))
 
 (defun sample-textures (mat uv)
   (declare (-material mat))
@@ -184,119 +193,34 @@
     (let ((mask (@ mat tex-present))
           (samples))
       (declare (type texture-samples samples))
-      (setf (@ samples diffuse) (sample tex-diffuse (vec4 0.58 0.58 0.58 1)))
+      (setf (@ samples diffuse) (sample tex-diffuse (vec4 1 1 1 1)
+                                        #++(vec4 0.58 0.58 0.58 1)))
       (setf (@ samples ambient) (sample tex-ambient (vec4 0.58 0.58 0.58 1)))
       (setf (@ samples opacity) (sample tex-opacity (vec4 1 0 0 1)))
       (setf (@ samples height) (sample tex-height (vec4 0.5 0 0 1)))
+                                        ;   (setf (@ samples normals) (sample tex-normals (vec4 1 1 0 1)))
       (setf (@ samples specular) (sample tex-specular (vec4 0 0 0 1)))
       (return samples))))
 
 (defun fragment ()
-  (let* ((mat (aref materials (clamp material-id 0 (1- count))))
-         (a (.a (@ ins color)))
-         (samples (sample-textures mat (@ ins uv))))
-    (when (zerop (.x (@ samples opacity)))
+  (let* ((mat (aref materials (clamp (if (= count 6)
+                                         0
+                                         material-id)
+                                     0 (1- count))))
+         (samples (sample-textures mat (@ ins uv)))
+         (a (* ;;(@ mat mat-opacity)
+             ;;(.a (@ samples diffuse))
+             (.x (@ samples opacity))
+             1
+             ;;(.a (@ ins color))
+             ))
+         (b 3)
+         (c z1))
+    (when (zerop a)
       (discard))
     (setf out-color (vec4 1 0.1 0.5 1))
-    #++(setf out-color (vec4 (* a (.xyz (@ ins color))) a))
-    #++(setf out-color (vec4 (.xy (@ ins uv)) 1 1))
-    #++(setf out-color (* (vec4 1)
-                          (@ mat color)
-                          (vec4 (abs (@ ins normal)) 1)))
-                                        ;(setf out-color (vec4 (@ mat clr-diffuse) 1))
-    #++(if (zerop (logand 2 (@ mat tex-present)))
-           (setf out-color
-                 (vec4 (@ ins uv) 0 1))
-           (setf out-color (texture (@ mat tex-diffuse) (@ ins uv)))
-           )
-    #++(setf out-color
-             (vec4 (@ ins uv) 0 1))
-
-    ;;(setf (.x out-color) (/ material-id (float count)))
     (setf out-color (@ samples diffuse))
+
     (setf (.xyz out-color) (* (.xyz out-color)
-                              (- 0.95 (expt (.z gl-frag-coord) 32))))
-    (setf (.a out-color) 1)
-    #++(when (> material-id 10)
-         (setf out-color (vec4 0.5)))
-                                        ;(setf out-color (vec4 1 0 0 1))
-    ))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#++
-(defun vertex-static ()
-  ;(transform)
-  ;(outs color uv normal tangent bitangent)
-  )
-#++
-(defun vertex-skinned ()
-  #++(with-skinned-position ()
-   ; (transform)
-   ; (outs color uv normal tangent bitangent)
-    ))
-#++
-(defun fragment-untextured ()
-
-)
-#++
-(defun fragment-ambient-diffuse ())
-#++
-(defun fragment-ambient-diffuse-height ())
-#++
-(defun fragment-ambient-diffuse-opacity ())
-#++
-(defun fragment-ambient-diffuse-height-opacity ())
-
-
-
-
-
-
-#++
-(defun vertex ()
-  (let ((p position))
-    (incf (.x p) 1.0)
-    (setf (.w p) 1.0)
-   (setf gl-position (* mvp p )))
-  #++(setf (@ outs color) (vec4 normal 1.0))
-  (setf (@ outs color) color)
-  (setf (@ outs uv) uv)
-  (setf (@ outs normal) normal))
-
-#++
-(defun fragment ()
-  (let ((a (.a (@ ins color))))
-    #++(setf out-color (vec4 (* a (.xyz (@ ins color))) a))
-    #++(setf out-color (vec4 (.xy (@ ins uv)) 1 1))
-    (setf out-color (vec4 (abs (@ ins normal)) 1))
-    ))
+                              (- 1 (expt (.z gl-frag-coord) (ash 1 7)))))
+    (setf (.a out-color) a)))
