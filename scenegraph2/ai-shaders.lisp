@@ -214,8 +214,7 @@
              1
              ;;(.a (@ ins color))
              ))
-         (b 3)
-         (c z1))
+         (b 3))
     (when (zerop a)
       (discard))
     (setf out-color (vec4 1 0.1 0.5 1))
