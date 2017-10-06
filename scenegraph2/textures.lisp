@@ -29,7 +29,6 @@
                                                                (sampler s))
                            (%gl:get-texture-handle-arb (texture tx))))))))
     (when (and resident (not (resident h)))
-      (format t "make resident ~x~%" (handle h))
       (%gl:make-texture-handle-resident-arb (handle h))
       (setf (resident h) t))
     h))
@@ -126,27 +125,97 @@
       (let* ((tex (gl:create-texture :texture-2d))
              (w (pngload:width png))
              (h (pngload:height png))
-             (channels (getf *pngload-colortypes*
-                             (pngload:color-type png)))
+             (channels (/ (array-total-size (pngload:data png))
+                          w h))
              (bytes (ceiling (/ (pngload:bit-depth png) 8)))
              (internal-format (aref *internal-formats* channels bytes)))
+        (declare (ignorable internal-format))
+        #++(progn
+             (%gl:texture-storage-2d tex
+                                     (floor (max (log w 2) (log h 2)))
+                                     internal-format
+                                     w h)
+             (%gl:texture-sub-image-2d tex 0 0 0 w h
+                                       (ecase channels
+                                         (1 :red) (2 :rg) (3 :rgb) (4 :rgba))
+                                       (ecase bytes
+                                         (1 :unsigned-byte)
+                                         (2 :unsigned-short))
+                                       (static-vectors:static-vector-pointer
+                                        (pngload:data png))))
+        (progn
+          (gl:bind-texture :texture-2d tex)
+          (%gl:tex-image-2d :texture-2d 0
+                            (cffi:foreign-enum-value
+                             '%gl:enum
+                             (ecase channels
+                               (1 :compressed-red)
+                               (2 :compressed-rg)
+                               (3 :compressed-rgb)
+                               (4 :compressed-rgba)))
+                            w h
+                            0
+                            (ecase channels
+                              (1 :red) (2 :rg) (3 :rgb) (4 :rgba))
+                            (ecase bytes
+                              (1 :unsigned-byte)
+                              (2 :unsigned-short))
+                            (static-vectors:static-vector-pointer
+                             (pngload:data png)))
+          (gl:bind-texture :texture-2d 0))
+        (gl:generate-texture-mipmap tex)
+        tex))))
+
+
+(defun flip (image)
+  (check-type image (simple-array (unsigned-byte 8) 3))
+  (locally (declare (type (simple-array (unsigned-byte 8) 3) image)
+                    (optimize speed))
+    (opticl:with-image-bounds (wy wx c) image
+      (assert (< wx 65536))
+      (assert (< wy 65536))
+      (assert (<= c 4))
+      (locally (declare (type (unsigned-byte 16) wx wy)
+                        (type (unsigned-byte 3) c))
+        (loop with stride = (* wx (or c 1))
+              for y below (floor wy 2)
+              for y1 = (* y stride)
+              for y2 = (* (- wy y 1) stride)
+              do (loop for i below stride
+                       do (rotatef (row-major-aref image (+ y1 i))
+                                   (row-major-aref image (+ y2 i)))))))))
+
+(defun load-texture-opticl (name)
+  (let ((img (opticl:read-image-file name)))
+    (when img
+      (let* ((tex (gl:create-texture :texture-2d))
+             (w (array-dimension img 1))
+             (h (array-dimension img 0))
+             (channels (array-dimension img 2))
+             (bytes 1) ;; todo: 16bit images?
+             (internal-format (aref *internal-formats* channels bytes))
+             (ats (array-total-size img)))
         (%gl:texture-storage-2d tex
                                 (floor (max (log w 2) (log h 2)))
                                 internal-format
                                 w h)
-        (%gl:texture-sub-image-2d tex 0 0 0 w h
-                                  (ecase channels
-                                    (1 :red) (2 :rg) (3 :rgb) (4 :rgba))
-                                  (ecase bytes
-                                    (1 :unsigned-byte)
-                                    (2 :unsigned-short))
-                                  (static-vectors:static-vector-pointer
-                                   (pngload:data png)))
+        (static-vectors:with-static-vector (s ats)
+          (check-type img (simple-array (unsigned-byte 8) 3))
+          (locally (declare (type (simple-array (unsigned-byte 8) 3) img)
+                            (optimize speed))
+            (flip img)
+            (loop for i below ats
+                  do (setf (aref s i) (row-major-aref img i))))
+
+          (%gl:texture-sub-image-2d tex 0 0 0 w h
+                                    (ecase channels
+                                      (1 :red) (2 :rg) (3 :rgb) (4 :rgba))
+                                    (ecase bytes
+                                      (1 :unsigned-byte)
+                                      (2 :unsigned-short))
+                                    (static-vectors:static-vector-pointer s)))
         (gl:generate-texture-mipmap tex)
         tex))))
-
-(defun load-texture-opticl (name)
-  (cerror "continue" "non-png textures not done yet ~s" name))
 
 (defun load-texture-file (name &key &allow-other-keys)
   ;; todo: support more than :texture-2d
@@ -182,11 +251,12 @@
   (let ((s (list type name target)))
     (or (gethash s (textures *resource-manager*))
         (let ((tx (load-texture type name :target target)))
-          (setf (gethash s (textures *resource-manager*))
-                (make-instance 'texture
-                               :texture tx
-                               :target target
-                               :source s))))))
+          (when tx
+            (setf (gethash s (textures *resource-manager*))
+                  (make-instance 'texture
+                                 :texture tx
+                                 :target target
+                                 :source s)))))))
 
 
 (defun reset-texture (tex)
@@ -199,11 +269,6 @@
 
 (defun reset-handle (handle)
   (when (and (resident handle) (handle handle))
-    (format t "make non-resident ~x~%" (handle handle))
-    (format t "@ ~s / ~s~%" (texture handle) (sampler handle))
-    (format t "= ~s~%  ~s~%" (source (texture handle))
-            (spec (sampler handle)))
     (when (%gl:is-texture-handle-resident-arb (handle handle))
       (%gl:make-texture-handle-non-resident-arb
        (shiftf (slot-value handle 'handle) nil)))))
-
