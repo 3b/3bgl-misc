@@ -35,10 +35,39 @@
 (defparameter *once* t)
 
 (defparameter *dt* (cons 0.0 0))
+(defparameter *gc* nil)
+(defparameter *gc-time* 0)
+
+(defun update-graphs (w)
+  (let* ((sg (sg w))
+         (r (sg::find-node sg :ui-root)))
+    (when r
+      (loop for c in (sg::children r)
+            when (typep c 'sg::graph-line-node)
+              do (let* ((i (sg::next c))
+                        (v (aref (sg::buffer c) i)))
+                   (when (or (< v -100) (> v 1200))
+                     (setf v 540.0))
+                   (setf (sg::next c) (mod (1+ i) (length (sg::buffer c))))
+                   (setf (aref (sg::buffer c) (sg::next c))
+                         (+ v (random 4.0) -2)))))))
 
 (defmethod basecode-draw ((w scene2test))
+  (unless (eq *gc* sb-kernel::*gc-epoch*)
+    (format t "~&gc! ~s after ~s:~6,3,,,'0f~%" sb-ext:*gc-run-time*
+            (floor (- (get-internal-real-time) *gc-time*)
+                   (* 60 internal-time-units-per-second))
+            (mod (/ (- (get-internal-real-time) *gc-time*)
+                      internal-time-units-per-second)
+                   60.0)
+            )
+    (format t "~s ~s~%" *gc-time* (get-internal-real-time))
+    (setf *gc-time* (get-internal-real-time))
+    (setf *gc* sb-kernel::*gc-epoch*))
   (unwind-protect
        (progn
+         (when (sg w)
+           (update-graphs w))
          (gl:enable :multisample)
          (let ((start (basecode::now)))
            (gl:clear-color (* 0.2 (abs (sin (/ (get-internal-real-time) 1000.0)))) 0.2 0.3 1)
@@ -55,7 +84,11 @@
                           (basecode::projection-matrix w)
                           (basecode::freelook-camera-modelview w))))
                  (sg::set-global 's::vp vp)
-                 (sg::set-global 's::mvp vp))
+                 (sg::set-global 's::mvp vp)
+                 (sg::set-global '3bgl-sg2-shaders-common:ui-matrix
+                                 (sb-cga:scale* 0.5 0.5 1.0)
+                                 ;sb-cga:+identity-matrix+; vp
+                                 ))
 
                (when (sg w)
                  (sg::draw-sg (sg w) (sb-cga:identity-matrix)))))
@@ -64,22 +97,41 @@
              (incf (cdr *dt*)))))
     (setf *once* nil)))
 
-(defun add-object (w name path &key (transform (sb-cga:identity-matrix)))
+(defun ensure-sg (w)
   (let* ((sg (sg w)))
     (unless sg
       (setf (sg w) (make-instance 'sg::scenegraph)
-            sg (sg w))
-      (sg::add-node sg 'sg::transform :root nil :matrix transform))
+            sg (sg w)))
+    (unless (sg::find-node sg :root)
+      (sg::add-node sg 'sg::transform :root nil))
+    (unless (sg::find-node sg :ui-root)
+      (sg::add-node sg 'sg::transform
+                    :ui-root :root
+                    :matrix (sb-cga:matrix*
+                             (sb-cga:scale* (/ 2 1920.0) (/ 2 1080.0) 1.0)
+                             (sb-cga:translate* (/ 1920 -2.0) (/ 1080 -2.0)
+                                                0.0))))
+    sg))
+
+(defun add-object (w name path &key (transform (sb-cga:identity-matrix)))
+  (let ((sg (ensure-sg w)))
     (when (sg::find-node sg name)
       (sg::remove-node (sg::find-node sg name)))
-    (sg::add-node sg 'sg::transform name :root)
+    (sg::add-node sg 'sg::transform name :root :matrix transform)
     (sg::load-object :file path :sg sg :parent-node name)))
+
+(defun add-ui-node (w name class &rest initargs)
+  (let ((sg (ensure-sg w)))
+    (when (sg::find-node sg name)
+      (sg::remove-node (sg::find-node sg name)))
+    (apply #'sg::add-node sg class name :ui-root initargs)))
 
 ;; *w* scenegraph::*v*
 ;; (setf *state* nil)
 
 (defun degrees (x) (float (* x (/ pi 180)) 1.0))
 
+(Defparameter *vsync* nil)
 (defmethod key-down :after ((w scene2test) k)
   (case k
     (:r
@@ -109,10 +161,11 @@
     (:space
      (setf (sg::previous-material sg::*resource-manager*) nil)
      (let ((fps (basecode::average-fps w)))
-       (format t "~&~,,',,3:d objects, ~,,',,3:d tris @ fps: ~s = ~sms~%"
+       (format t "~&~,,',,3:d objects, ~,,',,3:d primitives @ fps: ~s = ~sms~%"
                sg::*objects* sg::*no* (float fps 1.0)
-               (when (> fps 0.001) (float (/ fps) 1.0)))
-       (format t "~,,,3:d objects/sec ~,,,3:d tris/sec~%"
+               (when (> fps 0.001) (float (/ 1000.0 fps) 1.0)))
+       (format t "~s draws~%" sg::*draws*)
+       (format t "~,,,3:d objects/sec ~,,,3:d primitives/sec~%"
                (floor (* fps sg::*objects*)) (floor (* fps sg::*no*)))))
     (:v
      (loop with sg = (sg w)
@@ -167,11 +220,46 @@
         #++(setf (sg::matrix (sg::find-node (sg w) :bistrox))
                  (sb-cga:matrix* (sb-cga:scale* 0.1 0.1 0.1)))))))
     (:5
-     (glop:swap-interval (basecode::%glop-window w) 0)
-     (glop::%swap-interval (basecode::%glop-window w) 0))
+     (setf *vsync* (not *vsync*))
+     (glop::%swap-interval (basecode::%glop-window w) 0)
+     (glop:swap-interval (basecode::%glop-window w) (if *vsync* 1 0)))
     (:4 (setf (sg::matrix (sg::find-node (sg w) :bistro))
               (sb-cga:matrix* (sb-cga:scale* 0.1 0.1 0.1)
-                              (sb-cga:rotate* 0.0 0.0 (degrees 90)))))))
+                              (sb-cga:rotate* 0.0 0.0 (degrees 90)))))
+    (:g
+     (let ((n (add-ui-node w :graph-line 'sg::graph-line-node)))
+         (loop with b = (sg::buffer n)
+               for i below (length b)
+               do (setf (aref b i) (abs (* 50 (sin (/ i 60.0)))))))
+     (let ((n (add-ui-node w :graph-line2 'sg::graph-line-node
+                           :color '(1 0 1 1)
+                           :matrix (sb-cga:translate* 0.0 0.0 0.0))))
+       (loop with b = (sg::buffer n)
+             for i below (length b)
+             do (setf (aref b i) (abs (* 70 (sin (/ i 80.0)))))))
+     (loop
+       for i below 100
+       for n = (intern (format nil "G~a" i) :keyword)
+       do (let ((n (add-ui-node w n 'sg::graph-line-node
+                                :color (list (random 1.0)
+                                             (random 1.0)
+                                             (random 1.0)
+                                             1)
+                                :matrix (sb-cga:translate* 0.0 0.0 0.0))))
+            (loop with b = (sg::buffer n)
+                  with r = 10.0
+                  for y = (random 1000.0) then (+ y (- (random r) (/ r 2)))
+                  for i below (length b)
+                  do (setf (aref b i) y)))))
+    (:h
+     (let ((n (sg::find-node (sg w) :ui-root)))
+       (setf (sg::matrix n)
+             (sb-cga:matrix*
+              ;(sb-cga:rotate-around (sb-cga:vec 1.0 0.0 1.0) 0.45)
+              (sb-cga:scale* (/ 2 1920.0) (/ 2 1080.0) 1.0)
+              (sb-cga:translate* (/ 1920 -2.0) (/ 1080 -2.0)
+                                    0.0)))))
+))
 
 #++
 (loop for (name . node) in (alexandria:hash-table-alist (sg::index (sg *w*)))

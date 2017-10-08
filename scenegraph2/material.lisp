@@ -127,13 +127,18 @@
       (when (program m)
         (3bgl-shaders::reset-program (program m))))))
 
-(defun make-material (name state &key (defaults (make-hash-table))
-                                   count-var)
+(defun make-material (name state &key (defaults (make-hash-table)) count-var
+                                   (class (if (and (consp name)
+                                                   (find-class (car name)))
+                                              (car name)
+                                              'material)))
+  ;; fixme: decide if MATERIAL is actually useful/valid class or if
+  ;; subclass is required
   (when (get-material name)
     (delete-material (gethash name (materials *resource-manager*))))
   (setf (gethash name (materials *resource-manager*))
-        (make-instance 'material :state state :defaults defaults
-                                 :count-var count-var)))
+        (make-instance class :state state :defaults defaults
+                             :count-var count-var)))
 
 (defun bind-material (name)
   (let ((m (get-material name)))

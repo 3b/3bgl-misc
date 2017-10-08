@@ -2,16 +2,18 @@
 (cl:defpackage 3bgl-sg2-shaders-common
   (:use :3bgl-glsl/cl)
   ;(:intern #:m #:v #:p #:vp #:mvp)
-  (:export #:m #:v #:p #:vp #:mvp #:globals)
-  )
+  (:export #:m #:v #:p #:vp #:mvp #:globals #:ui-matrix #:ui-scale))
 
 (in-package #:3bgl-sg2-shaders-common)
+
 
 (interface globals (:buffer t :layout (:binding 0 :std430 t))
   (mvp :mat4)
   (vp :mat4)
   (v :mat4)
-  (p :mat4))
+  (p :mat4)
+  (ui-matrix :mat4)
+  (ui-scale :float))
 
 (defun foo () (mat4 1))
 (defun common-vertex ()

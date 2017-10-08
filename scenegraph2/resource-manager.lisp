@@ -6,9 +6,9 @@
 (defvar *globals-program* '3bgl-sg2-shaders-common::common-vertex)
 
 (defparameter *no* 0)
-(defparameter *nn* 0)
+(defparameter *draws* 0)
 (defparameter *objects* 0)
-
+(defparameter *once* t)
 
 (defclass resource-manager ()
   ;; buffers is indexed by a 'vertex format' as created by
@@ -39,9 +39,14 @@
 (defvar *foo* nil)
 
 (defmethod initialize-instance :after ((m resource-manager) &key)
-  #++(setf (globals-ssbo m) (gl:create-buffer))
-  #++(setf (globals-ssbo m) (3bgl-ssbo:make-ssbo :data (shader-globals m)
-                                                 :persistent t))
+  ;; set some defaulta for globals
+  (loop for mat in '(3bgl-sg2-shaders-common::mvp
+                     3bgl-sg2-shaders-common::vp
+                     3bgl-sg2-shaders-common::v
+                     3bgl-sg2-shaders-common::p
+                     3bgl-sg2-shaders-common::ui-matrix)
+        do (setf (gethash mat (%globals m)) (sb-cga:identity-matrix)))
+  (setf (gethash '3bgl-sg2-shaders-common::ui-scale (%globals m)) 1.0)
   (setf (streaming-ssbo m)
         (3bgl-ssbo::make-persistent-mapped-buffer
          ;; 16MB x triple-buffered. 16M is enough for 41 floats each
@@ -155,11 +160,12 @@
         (size buffer) 0)
   (let ((vbo (shiftf (vbo buffer) nil)))
     (when vbo (gl:delete-buffers (list vbo)))))
+
 (defun reset-buffer-set (bs)
   (setf (next bs) 0
         (size bs) 0)
   (let ((bindings (shiftf (bindings bs) nil)))
-    (when bindings (gl:delete-buffers (mapcar 'vbo bindings)))))
+    (when bindings (gl:delete-buffers (remove 'nil (mapcar 'vbo bindings))))))
 
 (defun upload-index-data (buffer pointer count type)
   (assert (eq type (index-type buffer)))
@@ -332,9 +338,10 @@
                  `(3bgl-ssbo::set-slot ,slot (or (gethash ',slot g) ,d))))
       (s 3bgl-sg2-shaders-common::mvp)
       (s 3bgl-sg2-shaders-common::vp)
-      nil
       (s 3bgl-sg2-shaders-common::v)
-      (s 3bgl-sg2-shaders-common::p))
+      (s 3bgl-sg2-shaders-common::p)
+      (s 3bgl-sg2-shaders-common::ui-scale)
+      (s 3bgl-sg2-shaders-common::ui-matrix))
     size))
 
 (defun write-globals ()
@@ -351,42 +358,71 @@
 (defun clear-globals ()
   (clrhash (%globals *resource-manager*)))
 
-;; these should be per material...
-(3bgl-ssbo::define-ssbo-writer %write-per-object (layout pointer size draws)
-  (let* ((count (length draws)))
-    (multiple-value-bind (total-size ok partial partial-count partial-size)
-        (3bgl-ssbo::check-size count :errorp nil)
-      (unless ok
-        (if partial
-            (break "can't draw all objects, drawing ~s of ~s objects (~s / ~s bytes) ~%" partial-count count partial-size total-size)
-            (progn (break "can't draw any objects~%")
-                   (return-from %write-per-object (values 0 0)))))
-      (3bgl-ssbo::set-slot 3bgl-ai-shaders::object-count partial-count)
-      (3bgl-ssbo::with-array@slot 3bgl-ai-shaders::objects
-        (loop for i below partial-count
-              for draw in draws
-              for (material-data nil nil matrix) = draw
-              do (3bgl-ssbo::with-struct@index i
-                   (3bgl-ssbo::set-slot 3bgl-ai-shaders::material-id
-                                         material-data)
-                   (3bgl-ssbo::set-slot 3bgl-ai-shaders::m
-                                         matrix))))
-      (values partial-size partial-count))))
 
-(defun write-per-object (mat draws)
-  (let* ((rm *resource-manager*)
-         (pop (per-object-packing mat)))
-    (if (3bgl-ssbo::packing pop)
-        (3bgl-ssbo::with-current-region (p) (streaming-ssbo rm)
-          (multiple-value-bind (size count)
-              (%write-per-object pop p (3bgl-ssbo::remaining) draws)
-            (3bgl-ssbo::use-bytes size)
-            (3bgl-ssbo::bind-range :shader-storage-buffer +per-object-binding+)
-            (values size count)))
-        (values 0 0))))
+(defmethod write-per-object (mat draws)
+  (break "no per-object writer for material ~s?" mat)
+  ;; not sure if this should have some default behavior or not...
+  (values 0 0))
+
+(defmethod primitive (mat)
+  :triangles)
+
+(defmethod submit-material-draws (material bs draws rm cs)
+  (let ((vao (vao bs)))
+    (%gl:vertex-array-element-buffer
+     vao (vbo (index-buffer rm)))
+    (loop for b in (bindings bs)
+          ;; todo: use %gl:vertex-array-vertex-buffers?
+          do (%gl:vertex-array-vertex-buffer
+              vao (index b) (vbo b)
+              (offset b) (stride b)))
+    (gl:bind-vertex-array VAO))
+  (multiple-value-bind (size count)
+      (write-per-object material draws)
+    (declare (ignorable size))
+    (unless count
+      (break "count = ~s, size=~s?" count size))
+    (when count
+      (3bgl-ssbo::with-current-region (p) cs
+        (let* ((max (floor (3bgl-ssbo::remaining) (* 5 4))))
+          (when (< max count)
+            (cerror "continue"
+                    "not enough space for draw commands. ~s / ~s~%"
+                    max count)
+            (setf count max)))
+        ;;(setf count (min 25000 count))
+        (macrolet ((add (offset value)
+                     `(setf (cffi:mem-aref p :unsigned-int (+ i ,offset))
+                            ,value)))
+          (loop for draw in draws
+                for index below count
+                for (nil ;; material dataa
+                     (index-offset index-count) ;; index
+                     (bs base-vertex count)     ;;vertex
+                     nil)                       ;; matrix
+                  = draw
+                for i = (* index 5)
+                for base-instance = index
+                do (let ((n index-count #++(min index-count 42)))
+                     (add 0 n)
+                     (incf *no* (floor n 3)))
+                   (add 1 1)
+                   (add 2 index-offset)
+                   (add 3 base-vertex)
+                   (add 4 base-instance)
+                   (incf *objects*))
+          (3bgl-ssbo::use-bytes (* 5 4 count)))
+        (let ((offset (3bgl-ssbo::bind :draw-indirect-buffer)))
+          (incf *draws*)
+          (%gl:multi-draw-elements-indirect (primitive material)
+                                            :unsigned-short
+                                            offset
+                                            count
+                                            0))))))
 
 (defun submit-draws ()
   (setf *no* 0)
+  (setf *draws* 0)
   (setf *objects* 0)
   (update-materials-for-recompiled-shaders *resource-manager*)
   (ensure-buffers *resource-manager*)
@@ -396,67 +432,22 @@
     with cs = (command-ssbo rm)
     for mat-name being the hash-keys of (draw-lists *resource-manager*)
       using (hash-value buffer-sets)
-    for material = (gethash mat-name (materials *resource-manager*))
+    for material = (if (typep mat-name 'material)
+                       mat-name
+                       (gethash mat-name (materials *resource-manager*)))
     do (bind-material material)
-       (gl:enable :blend)
+       (gl:disable :blend)
+       (gl:disable :sample-alpha-to-coverage)
        (gl:blend-func :src-alpha :one-minus-src-alpha)
        (loop
          for bs being the hash-keys of buffer-sets
            using (hash-value draws)
-         for vao = (vao bs)
-         do (%gl:vertex-array-element-buffer
-             vao (vbo (index-buffer rm)))
-            (loop for b in (bindings bs)
-                  ;; todo: use %gl:vertex-array-vertex-buffers?
-                  do (%gl:vertex-array-vertex-buffer
-                      vao (index b) (vbo b)
-                      (offset b) (stride b)))
-            (gl:bind-vertex-array VAO)
-            (multiple-value-bind (size count)
-                (write-per-object material draws)
-              (declare (ignorable size))
-              (unless count
-                (break "count = ~s, size=~s?" count size))
-              (when count
-                (3bgl-ssbo::with-current-region (p) cs
-                  (let* ((max (floor (3bgl-ssbo::remaining) (* 5 3))))
-                    (when (< max count)
-                      (cerror "continue"
-                              "not enough space for draw commands. ~s / ~s~%"
-                              max count)
-                      (setf count max)))
-                  ;;(setf count (min 25000 count))
-                  (macrolet ((add (offset value)
-                               `(setf (cffi:mem-aref p :unsigned-int (+ i ,offset))
-                                      ,value)))
-                    (loop for draw in draws
-                          for index below count
-                          for (nil ;; material dataa
-                               (index-offset index-count) ;; index
-                               (bs base-vertex count)     ;;vertex
-                               nil)                       ;; matrix
-                            = draw
-                          for i = (* index 5)
-                          for base-instance = index
-                          do (let ((n index-count #++(min index-count 42)))
-                               (add 0 n)
-                               (incf *no* (floor n 3)))
-                             (add 1 1)
-                             (add 2 index-offset)
-                             (add 3 base-vertex)
-                             (add 4 base-instance)
-                             (incf *objects*))
-                    (3bgl-ssbo::use-bytes (* 5 4 count)))
-                  (let ((offset (3bgl-ssbo::bind :draw-indirect-buffer)))
-                    (%gl:multi-draw-elements-indirect :triangles
-                                                      :unsigned-short
-                                                      offset
-                                                      count
-                                                      0)))))))
+         do (submit-material-draws material bs draws rm cs)))
   ;; possibly should clear individual per-bs hashes in each entry to
   ;; avoid reallocation every frame?
   (clrhash (draw-lists *resource-manager*))
   ;; do this at end of draw to minimize the amount of things the sync
   ;; needs to wait for
-  (next-region *resource-manager*))
+  (next-region *resource-manager*)
+  (setf *once* nil))
 

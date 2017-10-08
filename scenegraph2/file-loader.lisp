@@ -45,7 +45,10 @@
                                        :cull-face :back))
 
 (defun ai-material-name (blend format)
-  (intern (format nil "~:@(ai-material/~{~a/~}~a~)"
+  (append '(ai-material)
+          (loop for (a nil) on format by #'cddr collect a)
+          (list blend))
+  #++(intern (format nil "~:@(ai-material/~{~a/~}~a~)"
                   (loop for (a nil) on format by #'cddr collect a)
                   blend)
           '3bgl-sg2))
@@ -67,7 +70,7 @@
                  (setf (gethash name h)
                        (list i n))
                  (add-node sg 'transform (ai:name n) pname
-                           :matrix (ai:transform n))
+                           :matrix (sb-cga:transpose-matrix (ai:transform n)))
                  (push name (gethash (sort (copy-seq (ai:meshes n)) '<)
                                      objects))
                  (incf i)))
@@ -139,7 +142,7 @@
           for ctype = (gl::symbolic-type->real-type gltype)
           for (layout f simple) = (assoc n *ai-attributes* :key 'car)
           when simple
-            do (loop 
+            do (loop
                  for v across (funcall f m)
                  for i from offset by stride
                  do (loop
