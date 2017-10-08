@@ -51,7 +51,8 @@
 
     (alexandria:plist-hash-table
      ;; size (multiple of 4), default scale, default clamp, base type, count, gl type
-     `(:vec1 (4 nil nil single-float 1 :float)
+     `(:float (4 nil nil single-float 1 :float)
+       :vec1 (4 nil nil single-float 1 :float) ;;?
        :vec2 (8 nil nil single-float 2 :float)
        :vec3 (12 nil nil single-float 3 :float)
        :vec4 (16 nil nil single-float 4 :float)
@@ -70,7 +71,9 @@
        :vec1s16 (4 32767 (-1 1) (signed-byte 16) 1 :short)
        :vec2s16 (4 32767 (-1 1) (signed-byte 16) 2 :short)
        :vec3s16 (8 32767 (-1 1) (signed-byte 16) 3 :short)
-       :vec4s16 (8 32767 (-1 1) (signed-byte 16) 4 :short)))))
+       :vec4s16 (8 32767 (-1 1) (signed-byte 16) 4 :short)
+       :int (4 #.(1- (expt 2 31)) (-1 1) (signed-byte 32) 1 :int)
+       :unsigned-int (4 #.(1- (expt 2 32)) (0 1) (unsigned-byte 32) 1 :unsigned-int)))))
 
 (defun calc-vbo-layout (layout)
   (loop for (fn type . options) in layout
