@@ -53,7 +53,7 @@
                   blend)
           '3bgl-sg2))
 
-(defun translate-ai-nodes (root &key sg parent-node)
+(defun translate-ai-nodes (root &key sg parent-node optimize-graph)
   (let ((i 0)
         ;; name -> index + node
         (h (make-hash-table :test 'equalp))
@@ -355,13 +355,14 @@
       (r root))
     root))
 
-(defun translate-ai-scene (s &key sg parent-node)
+(defun translate-ai-scene (s &key sg parent-node optimize-graph)
   ;; todo: animations
   ;; todo: lights
   ;; todo: cameras
   (let* ((nodes/groups (translate-ai-nodes (unique-names
                                             (ai:root-node s))
-                                           :sg sg :parent-node parent-node))
+                                           :sg sg :parent-node parent-node
+                                           :optimize-graph optimize-graph))
          (sg (first nodes/groups))
          (groups (second nodes/groups))
          ;; todo: build a 'skeleton' for each node = hash of each node
@@ -402,7 +403,40 @@
 (defparameter *vnc-bindings* (multiple-value-list
                               (buffer-builder::calc-vbo-layout *vnc-layout*)))
 
-(defmethod load-object ((loader (eql :file)) name &key sg parent-node)
+(defun flatten (sg n)
+  (format t "check ~s:~% ~s ~s~%"
+          (name n)
+          (type-of n)
+          (mapcar 'type-of (children n)))
+  (loop
+    for c = (car (children n))
+    while (and (eql (type-of n) 'transform)
+               (and c (not (cdr (children n))))
+               (typep c 'transform))
+    do (format t "flatten ~s~%  into ~s~%"
+               (name n) (name c))
+    do (setf (matrix c) (sb-cga:matrix* (matrix n)
+                                        (matrix c))
+             (parent c) (parent n))
+       (setf (parent n) nil
+             (children n) nil)
+       (remove-node-from-index sg n)
+       (setf n c))
+  (cond
+    ((and (eql (type-of n) 'tranform)
+          (not (children n)))
+     (remove-node n)
+     nil)
+    (t
+     (setf (children n)
+           (remove 'nil
+                   (loop for c in (children n)
+                         do (setf (parent c) n)
+                         collect (flatten sg c))))
+     n)))
+
+(defmethod load-object ((loader (eql :file)) name &key sg parent-node
+                                                    optimize-graph)
   ;; todo: load files on another thread, just draw nothing until loaded
   ;; (possibly draw debug scene until fully loaded?)
   (let ((*ai-material-defaults*
@@ -412,8 +446,23 @@
     (let ((o (assimp:import-into-lisp
               (merge-pathnames name)
               :processing-flags *ai-loader-post-processing*
+              #++(if optimize-graph
+                     (cons :ai-process-optimize-graph
+                           *ai-loader-post-processing*)
+                     *ai-loader-post-processing*)
               :properties *ai-loader-properties*)))
-      (translate-ai-scene o :sg sg :parent-node parent-node))))
+      (assert (find-node sg parent-node))
+      (let ((tmp-sg (make-instance 'scenegraph)))
+        (add-node tmp-sg 'transform :root nil)
+        (translate-ai-scene o :sg tmp-sg :parent-node :root)
+        (loop with p = (find-node sg parent-node)
+              for c in (children (find-node tmp-sg :root))
+              do (when optimize-graph
+                   (setf c (flatten tmp-sg c)))
+                 (when c
+                   (format t "move ~s~%" (name c))
+                   (remove-node c)
+                   (add-node* sg c p)))))))
 
 
 #++
@@ -428,3 +477,7 @@
     (load-object :file
                  (asdf:system-relative-pathname '3bgl-misc "data/teapot/teapot.obj"))
     *resource-manager*)))
+
+#++
+(flatten
+ (root (scene2test::sg scene2test::*w*)))
