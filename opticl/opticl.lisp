@@ -213,6 +213,7 @@
     (unless type
       (error "can't figure out how to upload array of type ~s?"
              (type-of image)))
+    (gl:pixel-store :unpack-alignment 1)
     (with-pointer-to-image-data ((pointer format) image element-type)
       (format t "upload texture ~s~%"
               (list target level internal-size width height (if border 1 0)
