@@ -115,13 +115,26 @@
        (remhash *resource-manager* *live-managers*)
        (reset-resource-manager *resource-manager*))))
 
-(defclass vbo ()
-  ((vbo :initform nil :accessor vbo)
-   (stride :initarg :stride :reader stride)
-   ;; next available element
-   (next :initform 0 :accessor next)
-   ;; size in units of STRIDE
-   (size :initform 0 :accessor size)))
+(defclass strided-buffer (3bgl-ssbo::buffer)
+  ((stride :initarg :stride :reader stride))
+  (:default-initargs :flags '(:dynamic-storage)))
+
+(defmethod vbo ((b strided-buffer))
+  (3bgl-ssbo::name b))
+
+(defclass vbo (strided-buffer)
+  (;; next available element
+   (next :initform 0 :accessor next)))
+
+(defmethod size ((vbo vbo))
+  ;; size in units of STRIDE
+  (/ (3bgl-ssbo::size vbo) (stride vbo)))
+
+(defmethod (setf size) (new-size (vbo vbo))
+  ;; size in units of STRIDE
+  (assert (= new-size
+             (/ (3bgl-ssbo::size vbo) (stride vbo))))
+  new-size)
 
 (defclass index-buffer (vbo)
   ((index-type :initarg :index-type :reader index-type))
@@ -136,36 +149,28 @@
   (* alloc-granularity
      (ceiling count alloc-granularity)))
 
-(defmethod grow-buffer (buffer new-size
-                        &key (stride (stride buffer))
-                          (size (size buffer)))
-  (if (> new-size size)
-      (let ((vbo (gl:create-buffer))
-            (octets (* new-size stride)))
-        (format t "growing buffer from ~s to ~s elements = ~a -> ~a bytes (stride ~s)~%"
-                size new-size (* size stride) octets stride)
-        (assert vbo)
-        (gl:named-buffer-storage vbo (cffi:null-pointer) '(:dynamic-storage)
-                                 :end octets)
-        (when (vbo buffer)
-          (%gl:copy-named-buffer-sub-data (vbo buffer) vbo 0 0
-                                          (* stride (next buffer)))
-          (gl:delete-buffers (list (shiftf (vbo buffer) nil))))
-        (setf (vbo buffer) vbo)
-        new-size)
-      size))
+(defmethod grow-buffer (buffer new-size &key)
+  (let ((stride (stride buffer))
+        (size (size buffer)))
+    (if (> new-size size)
+        (progn
+          (format t "growing buffer from ~s to ~s elements = ~a -> ~a bytes (stride ~s)~%"
+                  size new-size (* size stride) (* new-size stride) stride)
+          (3bgl-ssbo::resize buffer (* new-size stride)
+                             :copy-octets (* stride (next buffer)))
+          (size buffer))
+        size)))
 
 (defun reset-buffer (buffer)
+  (3bgl-ssbo::destroy buffer)
   (setf (next buffer) 0
-        (size buffer) 0)
-  (let ((vbo (shiftf (vbo buffer) nil)))
-    (when vbo (gl:delete-buffers (list vbo)))))
+        (size buffer) 0))
 
 (defun reset-buffer-set (bs)
   (setf (next bs) 0
         (size bs) 0)
   (let ((bindings (shiftf (bindings bs) nil)))
-    (when bindings (gl:delete-buffers (remove 'nil (mapcar 'vbo bindings))))))
+    (map 'nil '3bgl-ssbo::destroy bindings)))
 
 (defun upload-index-data (buffer pointer count type)
   (assert (eq type (index-type buffer)))
@@ -184,20 +189,6 @@
                                pointer)
     (incf (next buffer) count)
     (list start count)))
-
-(defclass buffer-binding ()
-  ;; parameters to bind-vertex-buffer
-  ((vbo :initform nil :accessor vbo)
-   (stride :initarg :stride :reader stride)
-   (index :initarg :index :initform 0 :reader index)
-   (offset :initarg :offset :initform 0 :reader offset)
-   ;; link back to parent so we can get size/next from it
-   (parent :initarg :parent :reader parent)))
-
-(defmethod next ((b buffer-binding))
-  (next (parent b)))
-(defmethod size ((b buffer-binding))
-  (size (parent b)))
 
 (defclass buffer-set ()
   ;; 'vertex format' and correponding VAO of this buffer (should be
@@ -226,6 +217,19 @@
                                                    :index 0 :offset 0
                                                    :parent bs)))
         bs)))
+
+
+(defclass buffer-binding (strided-buffer)
+  ;; parameters to bind-vertex-buffer
+  ((index :initarg :index :initform 0 :reader index)
+   (offset :initarg :offset :initform 0 :reader offset)
+   ;; link back to parent so we can get size/next from it
+   (parent :initarg :parent :reader parent)))
+
+(defmethod next ((b buffer-binding))
+  (next (parent b)))
+(defmethod size ((b buffer-binding))
+  (size (parent b)))
 
 
 (defun buffer-geometry (buffer-set count &rest pointers)
