@@ -3,7 +3,7 @@
 
 (cl:in-package 3bgl-sg2-graph-shaders)
 
-(input h :vec2 :location 0)
+(input h :vec3 :location 0)
 
 (defstruct -per-object
   (m :mat4)
@@ -18,7 +18,7 @@
 (input color :vec4 :stage :fragment :qualifiers (:flat))
 
 (defun vertex ()
-  (let* ((pos (vec4 (* ui-scale h) 0 1))
+  (let* ((pos (vec4 (* ui-scale h) 1))
          (draw-id gl-draw-id)
          (po (aref objects draw-id))
          (m (@ po m)))

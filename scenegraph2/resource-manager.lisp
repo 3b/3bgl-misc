@@ -10,6 +10,7 @@
 (defparameter *objects* 0)
 (defparameter *once* t)
 
+(defvar *timing-helper* nil)
 (defclass resource-manager ()
   ;; buffers is indexed by a 'vertex format' as created by
   ;; buffer-builder::vertex-format-for-layout, values are buffer-set
@@ -28,7 +29,7 @@
                    :reader globals-layout)
    (modified-functions :initform (make-hash-table) :reader modified-functions)
    ;; material -> list (vector?) of things to draw
-   (draw-lists :initform (make-hash-table) :reader draw-lists)
+   (draw-lists :initform (make-hash-table :test 'equal) :reader draw-lists)
    ;; globals + per-object data
    (streaming-ssbo :initform 0 :accessor streaming-ssbo)
    ;; multi-draw-indirect command lists
@@ -103,8 +104,9 @@
 
 (pushnew 'notice-modified-shaders 3bgl-shaders::*modified-function-hook*)
 
-(defmacro with-resource-manager (() &body body)
-  `(let* ((*resource-manager* (make-instance 'resource-manager)))
+(defmacro with-resource-manager ((&key timing) &body body)
+  `(let* ((*resource-manager* (make-instance 'resource-manager))
+          (*timing-helper* ,timing))
      (setf *foo* *resource-manager*)
      (setf (gethash *resource-manager* *live-managers*) *resource-manager*)
      (setf (gethash *globals-program* (modified-functions *resource-manager*))
@@ -425,33 +427,44 @@
                                             0))))))
 
 (defun submit-draws ()
+  (mark *timing-helper* :id :submit-draw-start)
   (setf *no* 0)
   (setf *draws* 0)
   (setf *objects* 0)
   (update-materials-for-recompiled-shaders *resource-manager*)
+  (mark *timing-helper* :id :updated-materials)
   (ensure-buffers *resource-manager*)
+  (mark *timing-helper* :id :ensured-buffers)
   (write-globals)
+  (mark *timing-helper* :id :wrote-globals)
   (loop
     with rm = *resource-manager*
     with cs = (command-ssbo rm)
+    for i from 0
     for mat-name being the hash-keys of (draw-lists *resource-manager*)
       using (hash-value buffer-sets)
     for material = (if (typep mat-name 'material)
                        mat-name
                        (gethash mat-name (materials *resource-manager*)))
     do (bind-material material)
+       (mark *timing-helper* :id (list :bound i mat-name))
        (gl:disable :blend)
        (gl:disable :sample-alpha-to-coverage)
        (gl:blend-func :src-alpha :one-minus-src-alpha)
        (loop
          for bs being the hash-keys of buffer-sets
            using (hash-value draws)
-         do (submit-material-draws material bs draws rm cs)))
+         do (submit-material-draws material bs draws rm cs))
+       (mark *timing-helper* :id :submitted-draws))
+  (mark *timing-helper* :id (list :done-draw-loop
+                                  (hash-table-count
+                                   (draw-lists *resource-manager*))))
   ;; possibly should clear individual per-bs hashes in each entry to
   ;; avoid reallocation every frame?
   (clrhash (draw-lists *resource-manager*))
   ;; do this at end of draw to minimize the amount of things the sync
   ;; needs to wait for
   (next-region *resource-manager*)
+  (mark *timing-helper* :id :next-region)
   (setf *once* nil))
 

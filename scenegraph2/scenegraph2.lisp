@@ -216,5 +216,7 @@
   (add-object-to-draw-list (object n) mv))
 
 (defun draw-sg (sg mv)
+  (mark *timing-helper* :id :draw-sg-start)
   (draw-node (root sg) :mv mv)
+  (mark *timing-helper* :id :draw-sg-done)
   (submit-draws))

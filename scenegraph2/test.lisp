@@ -7,6 +7,7 @@
 (in-package #:scene2test)
 
 (defclass scene2test (basecode-glop
+                      sg::timing-helper
                       freelook-camera
                       basecode-exit-on-esc
                       basecode-shader-helper::basecode-shader-helper
@@ -16,7 +17,9 @@
   ((sg :accessor sg :initform nil))
   (:default-initargs :look-at-eye '(-97 14 -16)
                      :look-at-target '(30 28 5)
-                     :projection-far 1000.0))
+                     :projection-far 1000.0
+                     :swap-buffers nil
+                     :max-timer-queries 32))
 
 (defparameter *w* nil)
 
@@ -29,7 +32,7 @@
               (coerce z 'single-float)))
 
 (defmethod run-main-loop :around ((w scene2test))
-  (sg::with-resource-manager ()
+  (sg::with-resource-manager (:timing w)
     (let ((3bgl-shaders::*default-extensions* '(:arb-bindless-texture)))
       (call-next-method))))
 (defparameter *once* t)
@@ -48,9 +51,17 @@
                         (v (aref (sg::buffer c) i)))
                    (when (or (< v -100) (> v 1200))
                      (setf v 540.0))
-                   (setf (sg::next c) (mod (1+ i) (length (sg::buffer c))))
-                   (setf (aref (sg::buffer c) (sg::next c))
-                         (+ v (random 4.0) -2)))))))
+                   (sg::add-graph-sample c (+ v (random 4.0) -2))
+)))))
+
+(defmethod basecode::basecode-draw :around ((w scene2test))
+  (call-next-method)
+  (sg::mark w :id :swap)
+  (glop:swap-buffers (basecode::%glop-window w))
+  (sg::mark w :id :end)
+  (sg::update-times w)
+  (sg::mark w :id :start)
+  )
 
 (defmethod basecode-draw ((w scene2test))
   (unless (eq *gc* sb-kernel::*gc-epoch*)
@@ -66,14 +77,14 @@
     (setf *gc* sb-kernel::*gc-epoch*))
   (unwind-protect
        (progn
-         (when (sg w)
+         #++(when (sg w)
            (update-graphs w))
          (gl:enable :multisample)
          (let ((start (basecode::now)))
            (gl:clear-color (* 0.2 (abs (sin (/ (get-internal-real-time) 1000.0)))) 0.2 0.3 1)
            (gl:clear :color-buffer :depth-buffer)
            (setf *w* w)
-
+           (sg::mark w :id :clear)
            (progn ;;time
              (progn
                (sg::set-global 's::v
@@ -86,10 +97,11 @@
                  (sg::set-global 's::vp vp)
                  (sg::set-global 's::mvp vp)
                  (sg::set-global '3bgl-sg2-shaders-common:ui-matrix
-                                 (sb-cga:scale* 0.5 0.5 1.0)
+                                 (sb-cga:scale* 1.0 1.0 1.0)
                                  ;sb-cga:+identity-matrix+; vp
                                  ))
 
+               (sg::mark w :id :globals)
                (when (sg w)
                  (sg::draw-sg (sg w) (sb-cga:identity-matrix)))))
            (let ((dt (- (basecode::now) start)))
@@ -166,7 +178,19 @@
                (when (> fps 0.001) (float (/ 1000.0 fps) 1.0)))
        (format t "~s draws~%" sg::*draws*)
        (format t "~,,,3:d objects/sec ~,,,3:d primitives/sec~%"
-               (floor (* fps sg::*objects*)) (floor (* fps sg::*no*)))))
+               (floor (* fps sg::*objects*)) (floor (* fps sg::*no*)))
+       (loop for c0 = (aref (sg::current-times/cpu w) 0)
+             for g0 = (aref (sg::current-times/gpu w) 0)
+             for c across (sg::current-times/cpu w)
+             for g across (sg::current-times/gpu w)
+             for id across (sg::current-times/ids w)
+             for m across (sg::current-times/masks w)
+             when m do (format t "~s: @ ~6f / ~6f (~6f)~%"
+                               id (* 1000 (- c c0))
+                               (* 1000 (- g g0))
+                               (* 1000 (- g c0)))
+             )
+))
     (:v
      (loop with sg = (sg w)
            with r = 300.0
@@ -211,7 +235,7 @@
      (time
       (let* ((*default-pathname-defaults* #p"d:/tmp/t/Bistro/Bistro/"))
         (add-object w :bistro "Bistro_Research_Interior.fbx")
-        (setf (sg::matrix (sg::find-node (sg w) :bistro))
+        #++(setf (sg::matrix (sg::find-node (sg w) :bistro))
               (sb-cga:matrix* (sb-cga:scale* 0.1 0.1 0.1))))))
     (:0
      (time
@@ -222,11 +246,12 @@
     (:5
      (setf *vsync* (not *vsync*))
      (glop::%swap-interval (basecode::%glop-window w) 0)
-     (glop:swap-interval (basecode::%glop-window w) (if *vsync* 1 0)))
+     (glop:swap-interval (basecode::%glop-window w) (if *vsync* 2 0))
+     )
     (:4 (setf (sg::matrix (sg::find-node (sg w) :bistro))
               (sb-cga:matrix* (sb-cga:scale* 0.1 0.1 0.1)
-                              (sb-cga:rotate* 0.0 0.0 (degrees 90)))))
-    (:g
+                              (sb-cga:rotate* (degrees -90) 0.0 0.0))))
+    #++(:g
      (let ((n (add-ui-node w :graph-line 'sg::graph-line-node)))
          (loop with b = (sg::buffer n)
                for i below (length b)
@@ -251,8 +276,18 @@
                   for y = (random 1000.0) then (+ y (- (random r) (/ r 2)))
                   for i below (length b)
                   do (setf (aref b i) y)))))
+    (:g
+     (let ((n (add-ui-node w :graph 'sg::fps-graph-node :timing w)))
+       (setf (sg::matrix n)
+              (sb-cga:scale* 1.0 16.0 1.0))))
     (:h
-     (let ((n (sg::find-node (sg w) :ui-root)))
+     (let ((n (sg::find-node (sg w) :graph)))
+      (setf (sg::matrix n)
+            (sb-cga:matrix*
+             (sb-cga:scale* 1.0 16.0 1.0)
+             (sb-cga:translate* 0.0 2.0 0.0)
+             )))
+     #++(let ((n (sg::find-node (sg w) :ui-root)))
        (setf (sg::matrix n)
              (sb-cga:matrix*
               ;(sb-cga:rotate-around (sb-cga:vec 1.0 0.0 1.0) 0.45)

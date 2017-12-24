@@ -46,7 +46,10 @@
 (defclass graph-line-node (transform)
   ((color :initform #(1 1 1 1) :initarg :color :reader color)
    (next :initform 0 :accessor next)
-
+   ;; probably will remove this, mostly for debugging
+   ;; currently. Actual displayed label should probably be in
+   ;; container objects...
+   (label :accessor label :initform nil :initarg :label)
    (buffer :initform nil :reader buffer))
   (:default-initargs :size (1+ (* 60 30))))
 
@@ -75,6 +78,11 @@
             (list (next n) (buffer n))
             (sb-cga:matrix* mv (matrix n))))
 
+
+(defmethod add-graph-sample ((n graph-line-node) v)
+  (setf (aref (buffer n) (next n)) v)
+  (setf (next n) (mod (1+ (next n)) (length (buffer n)))))
+
 (defun get-graph-line-buffer-set ()
   (get-buffer-set (buffer-builder::vertex-format-for-layout
                     '((:h :vec2 :location 0)))))
@@ -84,8 +92,8 @@
          (bs (get-graph-line-buffer-set))
          (vao (vao bs))
          (ranges ()))
-  (when *once*
-    (format t "draws = ~s~%" draws))
+    (when *once*
+      (format t "draws = ~s~%" draws))
     ;; upload vertex data
     (3bgl-ssbo::with-current-region (p) cs
       (loop for (nil nil .draw nil) in draws
@@ -96,9 +104,10 @@
             do (when *once*
                  (format t "add draw ~s ~s~%" bstart buf))
                (unless (< (* 4 2 l) (3bgl-ssbo::remaining))
-                    (cerror "continue" "not enough space for graph line data ~s / ~s"
-                            l (floor (3bgl-ssbo::remaining) 8))
-                    (loop-finish))
+                 (cerror "continue"
+                         "not enough space for graph line data ~s / ~s"
+                         l (floor (3bgl-ssbo::remaining) 8))
+                 (loop-finish))
                (push (list rstart (1- l)) ranges)
                (when *once*
                  (format t " =  ~s ~s~%" rstart l))
