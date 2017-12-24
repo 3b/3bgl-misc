@@ -116,5 +116,4 @@
               for x from 0 below l
               for y = (aref (draw-time-history w)
                             (mod (+ x (fps-history-index w)) l))
-              do (gl:vertex x (- 100 y) 0)))))
-      (update-fps w start stop))))
+              do (gl:vertex x (- 100 y) 0))))))))
