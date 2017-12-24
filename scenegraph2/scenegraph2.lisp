@@ -137,7 +137,9 @@
 
 (defun add-node (sg type name parent-name &rest initargs)
   ;;(assert (not (gethash name (index sg))))
-  (let* ((p (gethash parent-name (index sg)))
+  (let* ((p (if (typep parent-name 'node)
+                parent-name
+                (gethash parent-name (index sg))))
          (n (apply #'make-instance type :name name :parent p initargs)))
     (when (and parent-name (not p))
       (error "couldn't find parent node ~s when adding ~s?" parent-name name))
