@@ -102,9 +102,8 @@
                                                (getf material :blend)
                                                *ai-material-defaults*)))
          (name (ai-material-name (getf material :blend) format))
-         (mat (or (get-material name)
-                  (make-material name state
-                                 :count-var '3bgl-ai-shaders::count))))
+         (mat (ensure-material name state
+                               :count-var '3bgl-ai-shaders::count)))
     (list name (intern-material mat (getf material :properties)))))
 
 (defun translate-ai-mesh (m skel materials)
