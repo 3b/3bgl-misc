@@ -217,7 +217,8 @@
 
 (defmethod draw-node ((n instance) &key mv)
   (call-next-method)
-  (add-object-to-draw-list (object n) mv))
+  (add-object-to-draw-list (object n)
+                           (sb-cga:matrix* mv (matrix n))))
 
 (defun draw-sg (sg mv)
   (mark *timing-helper* :id :draw-sg-start)
