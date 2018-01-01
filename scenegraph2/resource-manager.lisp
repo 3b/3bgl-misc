@@ -448,12 +448,11 @@
                        mat-name
                        (gethash mat-name (materials *resource-manager*)))
     do (bind-material material)
-       (mark *timing-helper* :id (list :bound i mat-name))
        (loop
          for bs being the hash-keys of buffer-sets
            using (hash-value draws)
-         do (submit-material-draws material bs draws rm cs))
-       (mark *timing-helper* :id :submitted-draws))
+         do (submit-material-draws material bs draws rm cs)))
+  (mark *timing-helper* :id :submitted-draws)
   (mark *timing-helper* :id (list :done-draw-loop
                                   (hash-table-count
                                    (draw-lists *resource-manager*))))
