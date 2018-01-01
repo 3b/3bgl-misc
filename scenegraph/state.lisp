@@ -385,7 +385,7 @@
   (let ((fbo1 (get-state old :framebuffer-format))
         (fbo2 (get-state new :framebuffer-format)))
     (when (or force (not (eql fbo1 fbo2)))
-      (gl:bind-framebuffer :framebuffer fbo2)))
+      #++(gl:bind-framebuffer :framebuffer fbo2)))
 
   ;; program is a shader program object
   ;;
