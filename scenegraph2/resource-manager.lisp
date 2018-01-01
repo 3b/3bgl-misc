@@ -449,9 +449,6 @@
                        (gethash mat-name (materials *resource-manager*)))
     do (bind-material material)
        (mark *timing-helper* :id (list :bound i mat-name))
-       (gl:disable :blend)
-       (gl:disable :sample-alpha-to-coverage)
-       (gl:blend-func :src-alpha :one-minus-src-alpha)
        (loop
          for bs being the hash-keys of buffer-sets
            using (hash-value draws)
