@@ -27,6 +27,10 @@
       name
       (gethash name (materials *resource-manager*))))
 
+(defun intern-material-name (name)
+  (or (gethash name (material-names *resource-manager*))
+      (setf (gethash name (material-names *resource-manager*)) name)))
+
 (defun intern-material (name value)
   (let ((m (get-material name)))
     (or (gethash value (material-index m))

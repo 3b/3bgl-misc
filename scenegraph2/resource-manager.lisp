@@ -21,15 +21,16 @@
    (textures :initform (make-hash-table :test 'equalp) :reader textures)
    (handles :initform (make-hash-table :test 'equalp) :reader handles)
    (samplers :initform (make-hash-table :test 'equalp) :reader samplers)
-   (materials :initform (make-hash-table :test 'equalp) :reader materials)
+   (materials :initform (make-hash-table) :reader materials)
+   (material-names :initform (make-hash-table :test 'equalp) :reader material-names)
    (previous-material :initform nil :accessor previous-material)
    (programs :initform (make-hash-table :test 'equalp) :reader programs)
    (globals :initform (make-hash-table) :reader %globals)
    (globals-layout :initform (make-instance '3bgl-ssbo::ssbo-layout/static)
                    :reader globals-layout)
    (modified-functions :initform (make-hash-table) :reader modified-functions)
-   ;; material -> list (vector?) of things to draw
-   (draw-lists :initform (make-hash-table :test 'equal) :reader draw-lists)
+   ;; (interned) material -> list (vector?) of things to draw
+   (draw-lists :initform (make-hash-table) :reader draw-lists)
    ;; globals + per-object data
    (streaming-ssbo :initform 0 :accessor streaming-ssbo)
    ;; multi-draw-indirect command lists

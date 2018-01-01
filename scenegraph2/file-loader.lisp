@@ -45,9 +45,10 @@
                                        :cull-face :back))
 
 (defun ai-material-name (blend format)
-  (append '(ai-material)
-          (loop for (a nil) on format by #'cddr collect a)
-          (list blend))
+  (intern-material-name
+   (append '(ai-material)
+           (loop for (a nil) on format by #'cddr collect a)
+           (list blend)))
   #++(intern (format nil "~:@(ai-material/~{~a/~}~a~)"
                   (loop for (a nil) on format by #'cddr collect a)
                   blend)
