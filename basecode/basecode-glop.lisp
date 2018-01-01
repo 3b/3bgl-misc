@@ -22,7 +22,7 @@
    (mode :initarg :mode)
    (swap-buffers :initform t :initarg :swap-buffers
                  :accessor swap-buffers)
-   )
+   (default-depth :initform 16 :initarg :default-depth :reader default-depth))
   (:default-initargs :width 640 :height 480 :title "..."
                      :x 0 :y 0
    ;;not sure how to pass extra params to window creation yet...
@@ -199,7 +199,7 @@
     (glop:with-window (gw (title bw) (width bw) (height bw)
                           :x (x-pos bw) :y (y-pos bw)
                           :win-class '%basecode-glop-window
-                          :depth-size 16
+                          :depth-size (default-depth bw)
                           :fullscreen (fullscreen bw)
                           )
      (setf (%basecode-window gw) bw)
