@@ -46,6 +46,10 @@
            :initform sb-cga:+identity-matrix+)))
 
 (defclass instance (transform)
+  ;;; fixme: abstract out this object stuff (use object/mesh from res-mgr?)
+  ;; 'object' is list of mesh draws, each is a plist of :index
+  ;; :material :vertex where material is list of (material-id material
+  ;; name) material-id
   ((object :initarg :object :accessor object)
    #++
    (material :initarg :material :accessor material)))
