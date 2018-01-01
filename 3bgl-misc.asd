@@ -5,6 +5,7 @@
                           split-sequence parse-number
                           mathkit 3bgl-shader glsl-packing
                           cl-tga-opengl 3bgl-ssbo
+                          3b-openvr
                           #+sbcl sb-concurrency)
   :serial t
   :components
@@ -118,6 +119,13 @@
              (:file "graph")
              (:file "fps-graph")
              (:file "scenegraph2")))
+   (:module "basecode-vr"
+            :serial t
+            :components
+            ((:file "package")
+             (:file "shaders")
+             (:file "render-model")
+             (:file "basecode-vr")))
 
 ))
 
