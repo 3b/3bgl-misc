@@ -20,9 +20,9 @@
               for (material-data nil nil matrix) = draw
               do (3bgl-ssbo::with-struct@index i
                    (3bgl-ssbo::set-slot 3bgl-ai-shaders::material-id
-                                         material-data)
+                                        material-data)
                    (3bgl-ssbo::set-slot 3bgl-ai-shaders::m
-                                         matrix))))
+                                        matrix))))
       (values partial-size partial-count))))
 
 (defmethod write-per-object ((mat ai-material) draws)
