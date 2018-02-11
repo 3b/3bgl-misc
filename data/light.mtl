@@ -1,0 +1,27 @@
+newmtl default
+  Tr 0
+  illum 2
+  Ka 1 1 1
+  Kd 1 1 1
+  Ke 0 0 0
+  Ks 0.2 0.2 0.2
+  Ns 10.0000
+  Ni 1.5000
+  map_Kd debug-texture.png
+  map_Kn debug-normal-texture.png
+  map_Ke light-emissive.png
+  map_bump debug-height-texture.png
+  map_Ks debug-metal-texture.png
+
+# todo
+# map_Ks SpecularTexture
+# map_ns SpecularityTexture
+# refl ReflectionTexture
+
+# map_emissive EmissiveTexture
+# map_Ka AmbientTexture
+# map_d OpacityTexture
+# map_bump BumpTexture1
+# bump BumpTexture2
+# map_disp DisplacementTexture1
+# disp DisplacementTexture2
