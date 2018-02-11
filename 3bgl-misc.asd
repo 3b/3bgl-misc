@@ -115,6 +115,7 @@
              (:file "material")
              (:file "textures")
              (:file "file-loader")
+             (:file "default-loader")
              (:file "ai-node")
              (:file "graph")
              (:file "fps-graph")
