@@ -50,9 +50,9 @@
            (loop for (a nil) on format by #'cddr collect a)
            (list blend)))
   #++(intern (format nil "~:@(ai-material/~{~a/~}~a~)"
-                  (loop for (a nil) on format by #'cddr collect a)
-                  blend)
-          '3bgl-sg2))
+                     (loop for (a nil) on format by #'cddr collect a)
+                     blend)
+             '3bgl-sg2))
 
 (defun translate-ai-nodes (root &key sg parent-node optimize-graph)
   (let ((i 0)
@@ -86,7 +86,7 @@
                    (loop for (p n) in w
                          unless (zerop (length (ai:children n)))
                            #+do (format t "add children1: ~s~%"
-                                      (map 'list #'n (ai:children n)))
+                                        (map 'list #'n (ai:children n)))
                          do (loop for c across (ai:children n)
                                   do (push (list n c) work)))
                    (r (reverse work))))))
@@ -148,8 +148,8 @@
                  do (loop
                       for j below ecount
                       do (assert (< (+ i
-                                        (* (1+ j)
-                                           (cffi:foreign-type-size ctype)))
+                                       (* (1+ j)
+                                          (cffi:foreign-type-size ctype)))
                                     (* (1+ count) stride)))
                       do (setf (cffi:mem-aref (cffi:inc-pointer data i)
                                               ctype j)
