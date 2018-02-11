@@ -39,18 +39,37 @@
    (left-eye-desc :accessor left-eye-desc :initform nil)
    (right-eye-desc :accessor right-eye-desc :initform nil)
 
+   (controller-role-ids :accessor controller-role-ids
+                        :initform (make-hash-table))
+
    (mirror-window-geometry :accessor mirror-window-geometry :initform nil)))
+
+(defun update-controller-roles (w)
+  (format t "left hand id = ~s~%"
+          (setf (gethash :left-hand (controller-role-ids w))
+                (3b-openvr::get-tracked-device-index-for-controller-role
+                 :left-hand)))
+  (format t "right hand id = ~s~%"
+          (setf (gethash :right-hand (controller-role-ids w))
+                (3b-openvr::get-tracked-device-index-for-controller-role
+                 :right-hand))))
 
 (defmethod process-vr-event ((w basecode-vr) event)
   (let ((index (getf event :tracked-device-index)))
     (case (getf event :event-type)
       (:tracked-device-activated
        (setup-render-model-for-tracked-device w index)
-       (format t "~&Device ~d attached. Setting up render model~%" index))
+       (format t "~&Device ~d attached. Setting up render model~%" index)
+       (update-controller-roles w))
       (:tracked-device-deactivated
-       (format t "~&Device ~d detached.~%" index))
+       (format t "~&Device ~d detached.~%" index)
+       (update-controller-roles w))
       (:tracked-device-updated
-       (format t "~&Device ~d updated.~%" index)))))
+       (format t "~&Device ~d updated.~%" index))
+      (:tracked-device-role-changed
+       (format t "~&Device ~d role changed?.~%"
+               (getf event :tracked-device-index))
+       (update-controller-roles w)))))
 
 (defmethod handle-vr-input ((w basecode-vr))
   ;; process SteamVR events
@@ -70,7 +89,7 @@
 ;;; Create/destroy GL a Render Model for a single tracked device
 (defmethod setup-render-model-for-tracked-device :after ((w basecode-vr)
                                                          tracked-device-index)
-  (when (aref (tracked-device-to-render-model w) tracked-device-index)
+  (when (tracked-device-to-render-model w tracked-device-index)
     (setf (aref (show-tracked-device w) tracked-device-index) t)))
 
 
@@ -104,8 +123,49 @@
 (defmethod eye-modelview ((w basecode-vr) eye)
   (sb-cga:matrix* (gethash eye (eye-poses w) sb-cga:+identity-matrix+)
                   (hmd-pose w)))
+
+(defmethod eye-modelview-local ((w basecode-vr) eye)
+  (sb-cga:matrix* (gethash eye (eye-poses w) sb-cga:+identity-matrix+)
+                  (hmd-pose w)))
+
 (defmethod eye-projection ((w basecode-vr) eye)
   (gethash eye (projections w) sb-cga:+identity-matrix+))
+
+(defparameter *eye* nil)
+
+(defun draw-rendermodels (w &optional (eye :left))
+  (let ((is-input-focus-captured-by-another-process
+          (vr::is-input-focus-captured-by-another-process))
+        (p (gethash 'render-model (programs w))))
+    (when p
+      (setf (3bgl-shaders::uniform p 'basecode-vr-shaders::diffuse) 0)
+      (3bgl-shaders::use-program p)
+      (loop with pose = nil
+            for i below vr::+max-tracked-device-count+
+            when (and (tracked-device-to-render-model w i)
+                      (aref (show-tracked-device w) i)
+                      (setf pose (aref (tracked-device-pose w) i))
+                      (getf pose 'vr::pose-is-valid)
+                      (not (and is-input-focus-captured-by-another-process
+                                (eql (vr::get-tracked-device-class i)
+                                     :controller)))
+                      (not (eql (vr::get-tracked-device-class i)
+                                :hmd)))
+              do (let* ((device-to-tracking (aref (device-pose w) i))
+                        (mvp (sb-cga:matrix*
+                              (eye-projection w eye)
+                              (eye-modelview-local w eye)
+                              device-to-tracking)))
+                   (setf (3bgl-shaders::uniform p 'basecode-vr-shaders::matrix)
+                         mvp)
+                   (3bgl-shaders::use-program p)
+                   (draw (tracked-device-to-render-model w i)))))))
+
+(defmethod render-scene :around ((w basecode-vr) eye)
+  (let ((*eye* eye))
+    (call-next-method)
+    ;; fixme: make optional
+    (draw-rendermodels w eye)))
 
 (defmethod render-scene ((w basecode-vr) eye)
   (break "?"))
@@ -200,7 +260,9 @@
   (unless vr::*system*
     (return-from get-hmd-matrix-projection-eye (sb-cga:identity-matrix)))
 
-  (vr::get-projection-matrix eye (near-clip o) (far-clip o)))
+  (vr::get-projection-matrix eye
+                             (float (near-clip o) 1.0)
+                             (float (far-clip o) 1.0)))
 
 (defmethod get-hmd-matrix-pose-eye ((o basecode-vr) eye)
   (unless vr::*system*
@@ -410,3 +472,24 @@
     (if vr::*system*
         (call-next-method)
         (error "VR API initialization failed?"))))
+
+
+(defmethod basecode-shader-helper::mvp ((w basecode-vr) program
+                                        &key (m (sb-cga:identity-matrix)))
+  (let* ((v (basecode-vr::eye-modelview w *eye*))
+         (p (basecode-vr::eye-projection w *eye*))
+         (mv (sb-cga:matrix* v m))
+         (mvp (sb-cga:matrix* p v m)))
+    (setf (3bgl-shaders::uniform program "time")
+          (float
+           (/ (get-internal-real-time)
+              internal-time-units-per-second)))
+    (setf (3bgl-shaders::uniform program "m") m
+          (3bgl-shaders::uniform program "v") v
+          (3bgl-shaders::uniform program "p") p
+          (3bgl-shaders::uniform program "mv") mv
+          (3bgl-shaders::uniform program "mvp") mvp
+          (3bgl-shaders::uniform program "normalMatrix") mv
+          (3bgl-shaders::uniform program "eyePos") (sb-cga:transform-point
+                                                    (sb-cga:vec 0.0 0.0 0.0)
+                                                    v))))

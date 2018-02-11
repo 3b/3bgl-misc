@@ -125,7 +125,8 @@
             ((:file "package")
              (:file "shaders")
              (:file "render-model")
-             (:file "basecode-vr")))
+             (:file "basecode-vr")
+             (:file "locomotion")))
 
 ))
 

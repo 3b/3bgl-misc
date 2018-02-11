@@ -16,7 +16,7 @@
 (defclass render-model-manager ()
   ((render-models :accessor render-models
                   :initform (make-hash-table :test 'equal))
-   (tracked-device-to-render-model :reader tracked-device-to-render-model
+   (tracked-device-to-render-model :reader %tracked-device-to-render-model
                                    :initform (make-array
                                               vr::+max-tracked-device-count+))))
 
@@ -34,24 +34,13 @@
     (return-from find-or-load-render-model (gethash name (render-models o))))
 
   ;; load the model if we didn't find one
-  #++(let* ((model (loop when (vr::load-render-model-async name) return it
-                           do (sleep 1)))
-            (texture (loop when (vr::load-texture-async
-                                 (getf model 'vr::diffuse-texture-id))
-                             return it
-                           do (sleep 1)))
-            (render-model (make-instance 'render-model
-                                         :name name
-                                         :model model :texture texture)))
-       (vr::free-render-model model)
-       (vr::free-texture texture)
-       (setf (gethash name (render-models o)) render-model))
   (let* ((model (vr::load-render-model-async name))
          (texture (when model (vr::load-texture-async
                                (getf model 'vr::diffuse-texture-id))))
-         (render-model (when (and model) (make-instance 'render-model
-                                                        :name name
-                                                        :model model :texture texture))))
+         (render-model (when (and model texture)
+                         (make-instance 'render-model
+                                        :name name
+                                        :model model :texture texture))))
     (vr::free-render-model model)
     (vr::free-texture texture)
     (setf (gethash name (render-models o)) render-model)))
@@ -65,21 +54,34 @@
   (let* ((render-model-name (vr::get-tracked-device-property
                              tracked-device-index :render-model-name-string))
          (render-model (find-or-load-render-model o render-model-name)))
-    (unless render-model
-      (dprintf "unable to load render model for tracked device ~d (~a.~a)"
-               tracked-device-index (driver o) render-model-name))
-    (setf (aref (tracked-device-to-render-model o) tracked-device-index)
-          render-model)))
+    ;; todo: catch errors and set to :failed
+    (if render-model
+        (setf (aref (%tracked-device-to-render-model o) tracked-device-index)
+              render-model)
+        (progn
+          (setf (aref (%tracked-device-to-render-model o) tracked-device-index)
+                :loading)
+          ;; return NIL to indicate it isn't loaded yet
+          nil))))
 
 ;;; Create/destroy GL Render Models
 (defmethod setup-render-models ((o render-model-manager))
-  (fill (tracked-device-to-render-model o) nil)
+  (fill (%tracked-device-to-render-model o) nil)
   (unless vr::*system*
     (return-from setup-render-models nil))
 
   (loop for tracked-device below vr::+max-tracked-device-count+
         when (vr::is-tracked-device-connected tracked-device)
           do (setup-render-model-for-tracked-device o tracked-device)))
+
+(defun tracked-device-to-render-model (w i)
+  (when (> i vr::+max-tracked-device-count+)
+    (return-from tracked-device-to-render-model))
+  (let ((d (aref (%tracked-device-to-render-model w) i)))
+    (typecase d
+      (render-model d)
+      ((eql :loading)
+       (setup-render-model-for-tracked-device w i)))))
 
 ;; allocates and populates the GL resources for a render model
 (defmethod initialize-instance :after ((m render-model) &key model texture)

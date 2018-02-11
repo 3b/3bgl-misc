@@ -27,7 +27,8 @@
         gl-position (* matrix (vec4 (.xyz position) 1))))
 
 (defun render-model-fragment ()
-  (setf output-color (texture diffuse uv-coords)))
+  (setf output-color
+        (texture diffuse uv-coords)))
 
 
 (output uv :vec2 :stage :vertex :qualifiers (:noperspective))
