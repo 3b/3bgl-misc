@@ -313,11 +313,17 @@
             for tx across *texture-slots*
             do (setf (gethash tx h) '(:handle 0)))
       (loop with tex-present = 0
+            with maybe-srgb = *load-textures-as-srgb*
             for k being the hash-keys of m using (hash-value v)
             for (name type default) = (gethash k *mat-props*)
             when (eql type :textures)
               do (setf v (mapcar #'tx v))
                  (loop for (tt uv name) in v
+                       ;; force SRGB off for all but diffuse texture
+                       for *load-textures-as-srgb*
+                         = (if (= tt 1)
+                               maybe-srgb
+                               nil)
                        do (unless (= uv 0)
                             (cerror "continue"
                                     "material uses non-zero uv channel?"))

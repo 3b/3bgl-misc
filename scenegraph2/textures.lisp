@@ -105,6 +105,26 @@
   ;; todo: default textures
   (cerror "continue" "builtin textures not done yet"))
 
+(defparameter *compress-loaded-textures* nil)
+;; fixme: SRGB as a global parameter like this isn't quite right, need
+;; to include it in the identifiert used for reusing previously loaded
+;; textures
+(defparameter *load-textures-as-srgb* nil)
+(defun get-internal-format (channels bytes)
+  (cond
+    ((= bytes 2) ;; no compression or srgb for 16-bit
+     (ecase channels (1 :r16) (2 :rg16) (3 :rgb16) (4 :rgb16)))
+    ((and *compress-loaded-textures* *load-textures-as-srgb*)
+     (ecase channels
+       (1 :compressed-red) ;; no srgb for r,rg
+       (2 :compressed-rg)
+       (3 :compressed-srgb)
+       (4 :compressed-srgb-alpha)))
+    (*load-textures-as-srgb*
+     (ecase channels
+       (1 :red) (2 :rg) (3 :srgb) (4 :srgb-alpha)))
+    (t (ecase channels (1 :r8) (2 :rg8) (3 :rgb8) (4 :rgb8)))))
+
 (defparameter *internal-formats*
   ;; todo: support signed/un-normalized formats as well?
   #2a((nil nil nil)
@@ -148,11 +168,7 @@
           (%gl:tex-image-2d :texture-2d 0
                             (cffi:foreign-enum-value
                              '%gl:enum
-                             (ecase channels
-                               (1 :compressed-red)
-                               (2 :compressed-rg)
-                               (3 :compressed-rgb)
-                               (4 :compressed-rgba)))
+                             (get-internal-format channels 1))
                             w h
                             0
                             (ecase channels
@@ -193,7 +209,7 @@
              (h (array-dimension img 0))
              (channels (array-dimension img 2))
              (bytes 1) ;; todo: 16bit images?
-             (internal-format (aref *internal-formats* channels bytes))
+             (internal-format (get-internal-format channels bytes))
              (ats (array-total-size img)))
         (%gl:texture-storage-2d tex
                                 (floor (max (log w 2) (log h 2)))

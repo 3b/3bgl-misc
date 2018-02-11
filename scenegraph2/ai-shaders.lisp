@@ -2,40 +2,7 @@
 (cl:defpackage 3bgl-ai-shaders
   (:use :3bgl-glsl/cl #++ :3bgl-material-lib-shaders
         :3bgl-sg2-shaders-common)
-  ;; define material property names so we can set them from host code
-  ;; even if shader doesn't use it
-  (:intern
-   #:mat-two-sided
-   #:mat-shading-model
-   #:mat-wireframe
-   #:mat-blend
-   #:mat-opacity
-   #:mat-bump-scaling
-   #:mat-shininess
-   #:mat-reflectivity
-   #:mat-shininess-strength
-   #:mat-index-of-refraction
-   #:clr-diffuse
-   #:clr-ambient
-   #:clr-specular
-   #:clr-emissive
-   #:clr-transparent
-   #:clr-reflective
-   #:tex-none
-   #:tex-diffuse
-   #:tex-specular
-   #:tex-ambient
-   #:tex-emissive
-   #:tex-height
-   #:tex-normals
-   #:tex-shininess
-   #:tex-opacity
-   #:tex-displacement
-   #:tex-lightmap
-   #:tex-reflection
-   #:tex-unknown
-   #:tex-present
-   ))
+)
 
 (cl:in-package 3bgl-ai-shaders)
 
@@ -44,7 +11,7 @@
 (input tangent :vec3 :location 2)
 (input bitangent :vec3 :location 3)
 (input color :vec4 :location 4)
-(input uv :vec2 :location 5)
+(input uv1 :vec2 :location 5)
 (input bones :vec4 :location 6)
 (input weights :vec4 :location 7)
 
@@ -75,6 +42,7 @@
   (tex-opacity :sampler-2d)
   (tex-specular :sampler-2d)
   (tex-normals :sampler-2d)
+  (tex-emissive :sampler-2d)
   (tex-present :int))
 
 (interface -materials (:buffer t :layout (:binding 1 :std430 t))
@@ -97,10 +65,12 @@
                      :in (:fragment ins))
   (uv :vec2)
   (color :vec4)
-  (normal :vec3))
+  (normal :vec3)
+  (tbn :mat3)
+  (world-pos :vec3))
 
 ;; not sure :flat qualifier is required/valid on vs output?
-(output material-id :int :stage :vertex); :qualifiers (:flat)
+(output material-id :int :stage :vertex) ; :qualifiers (:flat)
 (input material-id :int :stage :fragment :qualifiers (:flat))
 
 
@@ -137,13 +107,11 @@
          (po (aref objects draw-id))
          (m (@ po m)))
     (setf (.w pos) 1.0)
-    ;;(setf gl-position (* vp pos))
     (setf material-id (@ po material-id))
-    #++(setf (@ outs color) (vec4 normal 1.0))
+    (setf (@ outs uv) uv1)
     (setf (@ outs color) color)
-    (setf (@ outs uv) uv)
-    ;;(setf (.y (@ outs uv)) (- 1 (.y uv)))
-    (setf (@ outs normal) normal)
+    (setf (@ outs tbn) (mat3 tangent bitangent normal))
+    (setf (@ outs world-pos) (.xyz (* m pos)))
     (setf gl-position (* vp m pos))))
 
 (defstruct texture-samples
@@ -152,7 +120,8 @@
   (height :vec4)
   (opacity :vec4)
   (specular :vec4)
-  (normals :vec4))
+  (normals :vec4)
+  (emissive :vec4))
 
 (defmacro texture-mask (&rest textures)
   (let ((tx '(:none 0
@@ -198,9 +167,11 @@
       (setf (@ samples ambient) (sample tex-ambient (vec4 0.58 0.58 0.58 1)))
       (setf (@ samples opacity) (sample tex-opacity (vec4 1 0 0 1)))
       (setf (@ samples height) (sample tex-height (vec4 0.5 0 0 1)))
-                                        ;   (setf (@ samples normals) (sample tex-normals (vec4 1 1 0 1)))
+      (setf (@ samples normals) (sample tex-normals (vec4 0 1 0 1)))
       (setf (@ samples specular) (sample tex-specular (vec4 0 0 0 1)))
+      (setf (@ samples emissive) (sample tex-emissive (vec4 0 0 0 0)))
       (return samples))))
+
 
 (defun fragment ()
   (let* ((mat (aref materials (clamp (if (= count 6)
@@ -208,18 +179,65 @@
                                          material-id)
                                      0 (1- count))))
          (samples (sample-textures mat (@ ins uv)))
-         (a (* ;;(@ mat mat-opacity)
-             ;;(.a (@ samples diffuse))
-             (.x (@ samples opacity))
-             1
-             ;;(.a (@ ins color))
-             ))
-         (b 3))
+         (a (* (@ mat mat-opacity)
+               (.a (@ samples diffuse))
+               (.x (@ samples opacity))
+               1
+                                        ;(.a (@ ins color))
+               ))
+         (normal (normalize
+                  (* (@ ins tbn)
+                     (- (* 2 (.xyz (@ samples normals))) 1))))
+         ;; based on
+         ;; http://blog.selfshadow.com/publications/s2013-shading-course/karis/s2013_pbs_epic_notes_v2.pdf
+         ;; https://learnopengl.com/PBR/Lighting
+         (view-dir (normalize (- eye-pos (@ ins world-pos))))
+         (light-dir (normalize (- (vec3 0 2 0) (@ ins world-pos))))
+         (half-dir (normalize (+ light-dir view-dir)))
+         (v-dot-h (max (dot view-dir half-dir) 0))
+         (n-dot-l (max (dot normal light-dir) 0))
+         (n-dot-h (max (dot normal half-dir) 0))
+         (n-dot-v (max (dot normal view-dir) 0))
+         (roughness (.g (@ samples specular)))
+         (roughness2 (expt roughness 2))
+         (metal (.b (@ samples specular)))
+         (base-color (.xyz (@ samples diffuse)))
+         (f0-default 0.04)
+         (f0 (mix (vec3 f0-default)
+                  (.rgb base-color)
+                  metal))
+         (diffuse (/ base-color pi))
+         (a2 (* roughness2 roughness2))
+         (specular-d (/ a2
+                        (* pi (expt (1+ (* (expt n-dot-h 2)
+                                           (- a2 1)))
+                                    2))))
+         (specular-g-k (/ (expt (+ 1 roughness2) 2) 8))
+         (one-minus-specular-g-k (- 1 specular-g-k))
+         (specular-g (* (/ n-dot-l
+                           (+ specular-g-k
+                              (* n-dot-l one-minus-specular-g-k)))
+                        (/ n-dot-v
+                           (+ specular-g-k
+                              (* n-dot-v one-minus-specular-g-k)))))
+
+         (specular-f (+ f0
+                        (* (- 1 f0)
+                           (expt (- 1 v-dot-h) 5)
+                           )))
+         (specular (/ (* specular-d specular-f specular-g)
+                      (max (* 4 n-dot-v n-dot-l) 0.001)) )
+         (c (* n-dot-l
+               (+ (* (- 1 specular-f)
+                     (vec3 (- 1 metal))
+                     diffuse)
+                  specular))))
+    (declare (type :vec3 c))
     (when (zerop a)
       (discard))
-    (setf out-color (vec4 1 0.1 0.5 1))
-    (setf out-color (@ samples diffuse))
 
-    (setf (.xyz out-color) (* (.xyz out-color)
-                              (- 1 (expt (.z gl-frag-coord) (ash 1 7)))))
-    (setf (.a out-color) a)))
+    (setf (.xyz c)
+          (+ (.xyz c)
+             (.xyz (@ samples emissive))))
+
+    (setf out-color (vec4 c 1))))

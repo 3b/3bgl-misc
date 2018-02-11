@@ -49,6 +49,8 @@
                      3bgl-sg2-shaders-common::ui-matrix)
         do (setf (gethash mat (%globals m)) (sb-cga:identity-matrix)))
   (setf (gethash '3bgl-sg2-shaders-common::ui-scale (%globals m)) 1.0)
+  (setf (gethash '3bgl-sg2-shaders-common::eye-pos (%globals m))
+        (sb-cga:vec 0.0 0.0 0.0))
   (setf (streaming-ssbo m)
         (3bgl-ssbo::make-persistent-mapped-buffer
          ;; 16MB x triple-buffered. 16M is enough for 41 floats each
@@ -347,6 +349,7 @@
       (s 3bgl-sg2-shaders-common::vp)
       (s 3bgl-sg2-shaders-common::v)
       (s 3bgl-sg2-shaders-common::p)
+      (s 3bgl-sg2-shaders-common::eye-pos #.(sb-cga::vec 0.0 0.0 0.0))
       (s 3bgl-sg2-shaders-common::ui-scale)
       (s 3bgl-sg2-shaders-common::ui-matrix))
     size))
