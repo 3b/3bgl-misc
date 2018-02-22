@@ -1,0 +1,10 @@
+newmtl default
+  Tr 0
+  illum 0 # "no-shading" in assimp, using that + texture name to ID in loader
+  Ka 1 1 11
+  Kd 1 1 1
+  Ke 12 10 0
+  Ks 0.2 0.2 0.2
+  Ns 10.0000
+  Ni 1.52000
+  map_Ke [skybox-shader]
