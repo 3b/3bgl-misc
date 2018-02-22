@@ -45,6 +45,27 @@
   ((matrix :initarg :matrix :accessor matrix
            :initform sb-cga:+identity-matrix+)))
 
+(defclass trs ()
+  ;; mixin for nodes with separate transform/rotation/scale for animation
+  ((translation :initarg :translation :accessor translation
+                :initform (sb-cga:vec 0.0 0.0 0.0))
+   (rotation :initarg :rotation :accessor rotation
+             :initform (3bgl-math::quaternion 1.0 0.0 0.0 0.0))
+   (scale :initarg :scale :accessor scale
+          :initform (sb-cga:vec 1.0 1.0 1.0))))
+
+(defclass trs-transform (transform trs)
+  ())
+
+(defun calculate-trs-matrix (trs)
+  (sb-cga:matrix*
+   (sb-cga:scale (scale trs))
+   (3bgl-math::quat-rotate-matrix (rotation trs))
+   (sb-cga:translate (translation trs))))
+
+(defun update-trs-matrix (trs)
+  (setf (matrix trs) (calculate-trs-matrix trs)))
+
 (defclass instance (transform)
   ;;; fixme: abstract out this object stuff (use object/mesh from res-mgr?)
   ;; 'object' is list of mesh draws, each is a plist of :index
@@ -53,6 +74,9 @@
   ((object :initarg :object :accessor object)
    #++
    (material :initarg :material :accessor material)))
+
+(defclass trs-instance (instance trs)
+  ())
 
 (defclass light (transform)
   ;; todo: lighting: color/intensity in LIGHT, subclasses for
@@ -74,8 +98,13 @@
 
 (defun convert-transform-to-instance (sg name instance)
   (let ((n (find-node sg name)))
-    (assert (eq (type-of n) 'transform))
-    (change-class n 'instance :object instance)))
+    (cond
+      ((eq (type-of n) 'transform)
+       (change-class n 'instance :object instance))
+      ((eq (type-of n) 'trs-transform)
+       (change-class n 'trs-instance :object instance))
+      (t (error "don't know how to convert type ~s to instance? (~s)"
+                (type-of n) n)))))
 
 
 (defgeneric initargs-from-node (node)
