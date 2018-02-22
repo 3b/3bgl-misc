@@ -188,7 +188,9 @@
     n))
 
 (defun find-node (sg name)
-  (gethash name (index sg)))
+  (if (typep name 'node)
+      name ;; todo: verify it is a node in SG?
+      (gethash name (index sg))))
 
 (defun remove-node (node)
   (let ((sg (sg node))
@@ -240,14 +242,18 @@
 
 (defmethod draw-node ((n transform) &key mv)
   (when (children n)
-    (let* ((mv (sb-cga:matrix* mv (matrix n))))
+    (let* ((mv (if (matrix n)
+                   (sb-cga:matrix* mv (matrix n))
+                   mv)))
       (loop for c in (children n)
             do (draw-node c :mv mv)))))
 
 (defmethod draw-node ((n instance) &key mv)
   (call-next-method)
   (add-object-to-draw-list (object n)
-                           (sb-cga:matrix* mv (matrix n))))
+                           (if (matrix n)
+                            (sb-cga:matrix* mv (matrix n))
+                            nm)))
 
 (defun draw-sg (sg mv)
   (mark *timing-helper* :id :draw-sg-start)
