@@ -32,7 +32,7 @@
    (pos :initform 0 :accessor buf-pos)
    (end :initform 0 :accessor buf-end)
    (buf :initform (make-array 8192 :element-type '(unsigned-byte 8)
-                                  :initial-element 0)
+                                   :initial-element 0)
         :accessor buf-buf)))
 
 (defun buf-empty (buf)
@@ -85,26 +85,26 @@
            (when (and line
                       (string/= line "")
                       (char/= #\# (char line 0)))
-            (let* ((= (position #\= line))
-                   (k (intern (string-upcase
-                               (string-trim '(#\space #\newline #\tab)
-                                            (subseq line 0 =)))
-                              :keyword))
-                   (v (string-trim '(#\space #\newline #\tab)
-                                   (subseq line (1+ =)))))
-              (case k
-                (:format
-                 (list k (intern (string-upcase v) :keyword)))
-                (:exposure
-                 (list k (parse-number:parse-number v)))
-                (:colorcorr
-                 (list k (mapcar 'parse-number:parse-number
-                                 ;; should this allow other separators?
-                                 (split-sequence:split-sequence
-                                  #\space k :remove-empty-subseqs t))))
-                (:pixaspect
-                 (list k (parse-number:parse-number v)))
-                (t (list k v))))))
+             (let* ((= (position #\= line))
+                    (k (intern (string-upcase
+                                (string-trim '(#\space #\newline #\tab)
+                                             (subseq line 0 =)))
+                               :keyword))
+                    (v (string-trim '(#\space #\newline #\tab)
+                                    (subseq line (1+ =)))))
+               (case k
+                 (:format
+                  (list k (intern (string-upcase v) :keyword)))
+                 (:exposure
+                  (list k (parse-number:parse-number v)))
+                 (:colorcorr
+                  (list k (mapcar 'parse-number:parse-number
+                                  ;; should this allow other separators?
+                                  (split-sequence:split-sequence
+                                   #\space k :remove-empty-subseqs t))))
+                 (:pixaspect
+                  (list k (parse-number:parse-number v)))
+                 (t (list k v))))))
          (parse-xy (line)
            (destructuring-bind (axis1 dimension1 axis2 dimension2)
                (split-sequence:split-sequence #\space line
@@ -120,7 +120,8 @@
           with colorcorr = nil
           for line = (buf-read-line buf)
           for (k v) = (parse-key (string-trim '(#\space #\newline #\tab) line))
-          unless line do (error "invalid header parsing .hdr file?")
+          unless line
+            do (error "invalid header parsing .hdr file?")
           until (equal line "")
           if (eq k :exposure)
             do (setf exposure (* v (or exposure 1.0)))
@@ -144,9 +145,9 @@
   (let ((buf (buf-buf %buf))
         (pos (buf-pos %buf))
         (end (buf-end %buf)))
-      (declare (type (simple-array (unsigned-byte 32) (*)) destination)
-               (type (simple-array (unsigned-byte 8) (*)) buf)
-               (type (unsigned-byte 24) pos end))
+    (declare (type (simple-array (unsigned-byte 32) (*)) destination)
+             (type (simple-array (unsigned-byte 8) (*)) buf)
+             (type (unsigned-byte 24) pos end))
     (labels ((%read-byte ()
                (when (= pos end)
                  (setf pos 0
@@ -156,32 +157,32 @@
              (read-pixel ()
                (values (%read-byte) (%read-byte) (%read-byte) (%read-byte)))
              (valid-pixel-p (r g b e)
-             (declare (ignore e))
-             (or (> r 127) (> g 127) (> b 127)))
-           (old-rle-p (r g b e)
-             (declare)
-             (when (= r g b 1)
-               e))
-           (new-rle-p (r g b e)
-             (when (and (= r g 2) (< b 127))
-               (dpb b (byte 7 8) e)))
-           (write-pixel (p r g b e)
-             (let ((w 0))
-               (setf (ldb (byte 8 1) w) r
-                     (ldb (byte 8 10) w) g
-                     (ldb (byte 8 19) w) b
-                     (ldb (byte 5 27) w) (- e 113))
-               (setf (aref destination (+ offset p)) w)))
-           (write-component (p c v)
-             (declare (type (unsigned-byte 8) v))
+               (declare (ignore e))
+               (or (> r 127) (> g 127) (> b 127)))
+             (old-rle-p (r g b e)
+               (declare)
+               (when (= r g b 1)
+                 e))
+             (new-rle-p (r g b e)
+               (when (and (= r g 2) (< b 127))
+                 (dpb b (byte 7 8) e)))
+             (write-pixel (p r g b e)
+               (let ((w 0))
+                 (setf (ldb (byte 8 1) w) r
+                       (ldb (byte 8 10) w) g
+                       (ldb (byte 8 19) w) b
+                       (ldb (byte 5 27) w) (- e 113))
+                 (setf (aref destination (+ offset p)) w)))
+             (write-component (p c v)
+               (declare (type (unsigned-byte 8) v))
 
-             (ecase c
-               (0 (setf (ldb (byte 8 1) (aref destination (+ offset p))) v))
-               (1 (setf (ldb (byte 8 10) (aref destination (+ offset p))) v))
-               (2 (setf (ldb (byte 8 19) (aref destination (+ offset p))) v))
-               (3 (setf (ldb (byte 5 27) (aref destination (+ offset p)))
-                        ;; gl-exp = hdr-exp - 128 + 15
-                        (- v 113))))))
+               (ecase c
+                 (0 (setf (ldb (byte 8 1) (aref destination (+ offset p))) v))
+                 (1 (setf (ldb (byte 8 10) (aref destination (+ offset p))) v))
+                 (2 (setf (ldb (byte 8 19) (aref destination (+ offset p))) v))
+                 (3 (setf (ldb (byte 5 27) (aref destination (+ offset p)))
+                          ;; gl-exp = hdr-exp - 128 + 15
+                          (- v 113))))))
       (declare (inline read-pixel valid-pixel-p old-rle-p new-rle-p
                        write-pixel write-component))
       ;; limit width a bit to avoid optimization notes from sbcl
@@ -250,9 +251,10 @@
         (format t "ignoring exposure ~s for file ~s~%"
                 (getf header :exposure) file))
       (loop for y below height
-            do (read-scanline b width buf :offset (* y width )))
+            do (read-scanline b width buf :offset (* y width)))
       (make-instance 'hdr-file :width width :height height
-                     :data buf :exposure (or (getf header :exposure) 1.0)))))
+                               :data buf
+                               :exposure (or (getf header :exposure) 1.0)))))
 
 
 (defmethod tex-image-2d ((hdr hdr-file) &key (level 0))
@@ -265,9 +267,101 @@
                      :rgb :unsigned-int-5-9-9-9-rev
                      data)))
 
+(defparameter *layouts*
+  (alexandria:plist-hash-table
+   ;; index by layer # (= +x -x +y -y +z -z), = column,row
+   '(:horizontal #((2 1) (0 1) (1 0) (1 2) (3 1) (1 1))
+     :vertical #((2 1) (0 1) (1 0) (1 2) (1 1) (1 3)))))
+
+
+(defun flip-x (d x1 y1 w h stride)
+  (declare (type (simple-array (unsigned-byte 32) (*)) d))
+  (loop for y from y1 below (+ y1 h)
+        for row = (* y stride)
+        do (loop with w/2 = (/ w 2)
+                 with end = (+ x1 row w)
+                 with start = (+ x1 row)
+                 for x below w/2
+                 do (rotatef (aref d (+ x start)) (aref d (- end x 1))))))
+
+(defun flip-y (d x1 y1 w h stride)
+  (declare (type (simple-array (unsigned-byte 32) (*)) d))
+  (loop with h/2 = (/ h 2)
+        for y below h/2
+        for r1 = (+ x1 (* (+ y1 y) stride))
+        for r2 = (+ x1 (* (+ y1 (- h y 1)) stride))
+        do (rotatef (subseq d r1 (+ r1 w))
+                    (subseq d r2 (+ r2 w)))))
+
+(defun map-cube-faces (hdr fun &key (layout :guess))
+  (let ((width (width hdr))
+        (height (height hdr))
+        (data (data hdr)))
+    (when (eq layout :guess)
+      ;; require square faces to guess
+      #++(assert (or (= (* width 3/4) height)
+                     (= (* width 4/3) height)))
+      (unless (or (= (* width 3/4) height)
+                  (= (* width 4/3) height))
+        (cerror "continue"
+                "failed to guess orientation of cube map, size = ~s x ~s?"
+                width height))
+      (if (> height width)
+          (setf layout :vertical)
+          (setf layout :horizontal)))
+    ;; copy to foreign memory once so we don't copy whole thing for
+    ;; each face in tex-image-2d
+    (static-vectors:with-static-vector (p (length data)
+                                          :element-type '(unsigned-byte 32)
+                                          :initial-contents data)
+      (loop
+        with cw = (if (eq layout :vertical) (/ width 3) (/ width 4))
+        with ch = (if (eq layout :vertical) (/ height 4) (/ height 3))
+        with wh = (floor (min cw ch))
+        with pixel-bytes = 4
+        with pixel-stride-bytes = (* pixel-bytes width)
+        for layer in '(:texture-cube-map-positive-x
+                       :texture-cube-map-negative-x
+                       :texture-cube-map-positive-y
+                       :texture-cube-map-negative-y
+                       :texture-cube-map-positive-z
+                       :texture-cube-map-negative-z)
+        for (i j) across (gethash layout *layouts*)
+        for x = (* i wh)
+        for y = (* j wh)
+        when (eq layer :texture-cube-map-negative-z)
+          do (flip-y p x y wh wh width)
+             (flip-x p x y wh wh width)
+        do (funcall fun layer
+                    (cffi:inc-pointer (static-vectors:static-vector-pointer p)
+                                      (+ (* pixel-bytes x)
+                                         (* pixel-stride-bytes y)))
+                    wh wh width)))))
+
+(defmethod tex-image-cross-cube ((hdr hdr-file) &key (level 0)
+                                                  (layout :guess))
+
+  (map-cube-faces hdr
+                  (lambda (face pointer w h pixel-stride)
+                    (gl:pixel-store :unpack-row-length pixel-stride)
+                    (gl:tex-image-2d face level
+                                     :rgb9-e5
+                                     w h 0
+                                     :rgb :unsigned-int-5-9-9-9-rev
+                                     pointer))
+                  :layout layout)
+  (gl:pixel-store :unpack-row-length 0))
+
 (defmethod tex-image-2d ((filename string) &key (level 0))
   (tex-image-2d (read-hdr-file filename) :level level))
 
 (defmethod tex-image-2d ((filename pathname) &key (level 0))
-    (tex-image-2d (read-hdr-file filename) :level level))
+  (tex-image-2d (read-hdr-file filename) :level level))
 
+(defmethod tex-image-cross-cube ((filename string) &key (level 0)
+                                                     (layout :guess))
+  (tex-image-cross-cube (read-hdr-file filename) :level level :layout layout))
+
+(defmethod tex-image-cross-cube ((filename pathname) &key (level 0)
+                                                  (layout :guess))
+  (tex-image-cross-cube (read-hdr-file filename) :level level :layout layout))

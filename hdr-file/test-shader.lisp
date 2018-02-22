@@ -1,6 +1,5 @@
 (cl:defpackage #:hdr-test-shaders
-  (:use :cl :glsl)
-  (:shadowing-import-from #:glsl #:defun #:defconstant))
+  (:use :3bgl-glsl/cl))
 (cl:in-package #:hdr-test-shaders)
 
 ;; vertex attributes
@@ -10,23 +9,25 @@
 ;; final output
 (output out-color :vec4 :stage :fragment)
 
-(uniform texture :sampler-2d :stage :fragment)
+(uniform texture1 :sampler-cube :stage :fragment)
 (uniform exposure :float :stage :fragment)
 
 ;;(uniform m :mat4)
 ;;(uniform v :mat4)
 ;;(uniform p :mat4)
-;;(uniform mv :mat4)
+(uniform mv :mat4)
 (uniform mvp :mat4)
 
 
 (interface varyings (:out (:vertex outs)
                      :in (:fragment ins))
+  (pos :vec3)
   (uv :vec2))
 
 (defun vertex ()
   (declare (values))
   (setf (@ outs uv) uv
+        (@ outs pos) (.xyz  position)
         gl-position (* mvp position)))
 
 (defun filmic-tonemap1 (x)
@@ -51,8 +52,7 @@
                      ))
     (return
       #++(- (/ (+ ax2 bcx de) (+ ax2 bx df)) e_f)
-      (- (/ (+ ax2 (* bc x) de) (+ ax2 (* b x) df)) e_f)
-      )))
+      (- (/ (+ ax2 (* bc x) de) (+ ax2 (* b x) df)) e_f))))
 
 (defun filmic-tonemap (x)
   ;; from "Uncharted 2: HDR Lighting", John Hable, gdc 2010
@@ -79,16 +79,15 @@
 
 (defun reinhard-tonemap (x)
   (declare (values :vec3) (:vec3 x))
-  (return (/ x (+ 1 x)))))
+  (return (/ x (+ 1 x))))
 
 (defun fragment ()
   (declare (values))
-  (let ((c (vec3 (texture-2d texture (@ ins uv)))))
+  (let ((c (vec3 (texture texture1 (@ ins pos)))))
     (declare (:vec3 c))
     (setf c (* c exposure))
     (setf (.xyz out-color)
           (filmic-tonemap c)
           ;(reinhard-tonemap c)
-          )) 
+          ))
   (setf (.a out-color) 1.0))
-

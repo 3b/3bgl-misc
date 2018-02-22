@@ -97,6 +97,11 @@
             :components
             ((:file "package")
              (:file "builder")))
+   (:module "hdr-file"
+            :serial t
+            :components
+            ((:file "package")
+             (:file "hdr")))
    (:module "scenegraph"
             :serial t
             :components
