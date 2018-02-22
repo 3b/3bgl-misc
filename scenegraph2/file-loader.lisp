@@ -42,7 +42,8 @@
 (defparameter *ai-material-defaults* '(:blend-func (:one :one-minus-src-alpha)
                                        :blend nil
                                        :depth-test t
-                                       :cull-face :back))
+                                       :cull-face :back
+                                       :texture-cube-map-seamless t))
 
 (defun ai-material-name (blend format)
   (intern-material-name
@@ -202,6 +203,8 @@
      "$tex.flags" (:warn))   ;;(tex-flags)
    :test 'equalp))
 
+(defparameter *mat-overrides* (make-hash-table :test 'equal))
+
 (defparameter *ai-shading-modes*
   '(:ai-shading-mode-flat 1
     :ai-shading-mode-gouraud 2
@@ -212,7 +215,9 @@
     :ai-shading-mode-minnaert 7
     :ai-shading-mode-cook-torrance 8
     :ai-shading-mode-no-shading 9
-    :ai-shading-mode-fresnel 10))
+    :ai-shading-mode-fresnel 10
+    ;; local hacks
+    :3bgl-shading-mode-skybox -1))
 
 (defparameter *ai-texture-type*
   '(:ai-texture-type-none 0
@@ -273,7 +278,10 @@
                                    (lambda (a) (coerce a 'single-float))
                                    value)
                               '(simple-array single-float (3))))
-               (:shading-mode (getf *ai-shading-modes* value))
+               (:shading-mode
+                (let ((a (getf *ai-shading-modes* value)))
+                  (assert a)
+                  a))
                (:handle value)
                (:textures
                 ;;sort by texture type then uv channel (though if
@@ -282,9 +290,9 @@
                 ;;probably uses the $tex.op/blend stuff)
                 (sort
                  (loop for (a b tx) in (copy-list value)
-                       collect (list a b (find-texture tx a)))
-                 #'2<)
-                ))))
+                       unless (string= tx "[skybox-shader]")
+                         collect (list a b (find-texture tx a)))
+                 #'2<)))))
 
     (let ((a (alexandria:hash-table-alist h))
           (name nil))
@@ -302,11 +310,11 @@
           when d
             do (setf (gethash n h) (list type d)))
     (flet ((tx (tx)
-             (destructuring-bind (&optional tt tc fn)
+             (destructuring-bind (&optional tt tc (fn ""))
                  tx
                (list (getf *ai-texture-type* tt tt)
                      tc
-                     (substitute #\/ #\\ fn)))))
+                     (substitute #\/ #\\ (namestring fn))))))
       ;; set textures to 0 by default (possibly should (optionally) zero buffers
       ;; before filling instead?)
       (loop for i from 0
@@ -314,7 +322,11 @@
             do (setf (gethash tx h) '(:handle 0)))
       (loop with tex-present = 0
             with maybe-srgb = *load-textures-as-srgb*
-            for k being the hash-keys of m using (hash-value v)
+            ;;for k being the hash-keys of m using (hash-value v1)
+            for k in (union (alexandria:hash-table-keys m)
+                            (alexandria:hash-table-keys *mat-overrides*))
+            for v1 = (gethash k m)
+            for v = (gethash k *mat-overrides* v1)
             for (name type default) = (gethash k *mat-props*)
             when (eql type :textures)
               do (setf v (mapcar #'tx v))
@@ -324,18 +336,28 @@
                          = (if (= tt 1)
                                maybe-srgb
                                nil)
-                       do (unless (= uv 0)
-                            (cerror "continue"
-                                    "material uses non-zero uv channel?"))
-                          (setf (ldb (byte 1 tt) tex-present) 1)
-                          (setf (gethash (aref *texture-slots* tt) h)
-                                (list
-                                 :int
-                                 (handle
-                                  (get-handle (get-texture name)
-                                              (get-sampler 'ai-sampler
-                                                           :max-anisotropy 16)
-                                              :resident t)))))
+                       ;; hack for skybox material: emissive texture
+                       ;; named [skybox-shader] is rendered as skybox
+                       ;; using current reflection-map texture
+                       when (and (= tt 4) ;; emissive
+                                 (string= name "[skybox-shader]"))
+                         do (setf (gethash '3bgl-ai-shaders::mat-shading-model h)
+                                  (list :shading-mode :3bgl-shading-mode-skybox))
+                       else
+                         do (unless (= uv 0)
+                              (cerror "continue"
+                                      "material uses non-zero uv channel?"))
+                            (setf (ldb (byte 1 tt) tex-present) 1)
+                            (setf (gethash (aref *texture-slots* tt) h)
+                                  (list
+                                   :int
+                                   (handle
+                                    (get-handle (or (get-texture name)
+                                                    (get-texture :debug
+                                                                 :type :default))
+                                                (get-sampler 'ai-sampler
+                                                             :max-anisotropy 16)
+                                                :resident t)))))
             when (eql name :warn)
               do (format t "using unsupported material parameter ~s = ~s~%"
                          k v)

@@ -40,17 +40,30 @@
 (defvar *resource-manager* nil)
 (defvar *foo* nil)
 
+(defmethod reset-globals ((m resource-manager))
+  ;; make sure we don't have any old texture handles or similar
+  ;; hanging around
+  (let ((g (%globals m)))
+    (clrhash g)
+    ;; set some defaults for globals
+    (loop for mat in '(3bgl-sg2-shaders-common::mvp
+                       3bgl-sg2-shaders-common::vp
+                       3bgl-sg2-shaders-common::v
+                       3bgl-sg2-shaders-common::p
+                       3bgl-sg2-shaders-common::ui-matrix)
+          do (setf (gethash mat g) (sb-cga:identity-matrix)))
+    (setf (gethash '3bgl-sg2-shaders-common::ui-scale g) 1.0)
+    (setf (gethash '3bgl-sg2-shaders-common::eye-pos g)
+          (sb-cga:vec 0.0 0.0 0.0))
+    (setf (gethash '3bgl-sg2-shaders-common::env-map-mode g) 0)
+    (setf (gethash '3bgl-sg2-shaders-common::diffuse-env-map g) 0)
+    (setf (gethash '3bgl-sg2-shaders-common::diffuse-cube-map g) 0)
+    (setf (gethash '3bgl-sg2-shaders-common::specular-env-map g) 0)
+    (setf (gethash '3bgl-sg2-shaders-common::specular-cube-map g) 0)
+    (setf (gethash '3bgl-sg2-shaders-common::prefiltered-specular-lut g) 0)))
+
 (defmethod initialize-instance :after ((m resource-manager) &key)
-  ;; set some defaulta for globals
-  (loop for mat in '(3bgl-sg2-shaders-common::mvp
-                     3bgl-sg2-shaders-common::vp
-                     3bgl-sg2-shaders-common::v
-                     3bgl-sg2-shaders-common::p
-                     3bgl-sg2-shaders-common::ui-matrix)
-        do (setf (gethash mat (%globals m)) (sb-cga:identity-matrix)))
-  (setf (gethash '3bgl-sg2-shaders-common::ui-scale (%globals m)) 1.0)
-  (setf (gethash '3bgl-sg2-shaders-common::eye-pos (%globals m))
-        (sb-cga:vec 0.0 0.0 0.0))
+  (reset-globals m)
   (setf (streaming-ssbo m)
         (3bgl-ssbo::make-persistent-mapped-buffer
          ;; 16MB x triple-buffered. 16M is enough for 41 floats each
@@ -68,11 +81,13 @@
          (expt 2 22) :regions 3)))
 
 (defun reset-resource-manager (manager)
+  (reset-globals manager)
   (macrolet ((reset (slot fun)
                `(let ((v (alexandria:hash-table-values (,slot manager))))
                   (clrhash (,slot manager))
                   (map nil ',fun v))))
     (when manager
+      (clrhash (draw-lists manager))
       (3bgl-ssbo::reset-persistent-mapped-buffer (streaming-ssbo manager))
       (3bgl-ssbo::reset-persistent-mapped-buffer (command-ssbo manager))
       (reset buffers reset-buffer-set)
@@ -351,8 +366,62 @@
       (s 3bgl-sg2-shaders-common::p)
       (s 3bgl-sg2-shaders-common::eye-pos #.(sb-cga::vec 0.0 0.0 0.0))
       (s 3bgl-sg2-shaders-common::ui-scale)
-      (s 3bgl-sg2-shaders-common::ui-matrix))
+      (s 3bgl-sg2-shaders-common::ui-matrix)
+      (s 3bgl-sg2-shaders-common::now
+         (ldb (byte 32 0)
+              (floor (* 1000 (get-internal-real-time))
+                     internal-time-units-per-second)))
+      (s 3bgl-sg2-shaders-common::env-map-mode 0)
+      (s 3bgl-sg2-shaders-common::specular-cube-map 0)
+      (s 3bgl-sg2-shaders-common::specular-env-map 0)
+      (s 3bgl-sg2-shaders-common::diffuse-cube-map 0)
+      (s 3bgl-sg2-shaders-common::diffuse-env-map 0)
+      (s 3bgl-sg2-shaders-common::prefiltered-specular-lut 0))
     size))
+
+(defun load-env-map (loader file mode map-type)
+  (let* ((tex (ecase mode
+                (:cube
+                 (get-texture file :target :texture-cube-map :type loader))
+                (:equirectangular (get-texture file :type loader))))
+         (h (%globals *resource-manager*))
+         (handle (when tex
+                   (handle
+                    (get-handle tex (get-sampler 'env-map-sampler
+                                                 :max-anisotropy 1)
+                                :resident t)))))
+    (flet ((reset ()
+             (setf (gethash '3bgl-sg2-shaders-common::specular-env-map h) 0
+                   (gethash '3bgl-sg2-shaders-common::specular-cube-map h) 0
+                   (gethash '3bgl-sg2-shaders-common::diffuse-env-map h) 0
+                   (gethash '3bgl-sg2-shaders-common::diffuse-cube-map h) 0)))
+      (when handle
+        (ecase mode
+          (:cube
+           (unless (eql (gethash '3bgl-sg2-shaders-common::env-map-mode h) 1)
+             (reset)
+             (setf (gethash '3bgl-sg2-shaders-common::env-map-mode h) 1)))
+          (:equirectangular
+           (unless (eql (gethash '3bgl-sg2-shaders-common::env-map-mode h) 2)
+             (reset)
+             (setf (gethash '3bgl-sg2-shaders-common::env-map-mode h) 2))))
+        (ecase map-type
+          (:diffuse
+           (ecase mode
+             (:cube
+              (setf (gethash '3bgl-sg2-shaders-common::diffuse-cube-map h)
+                    handle))
+             (:equirectangular
+              (setf (gethash '3bgl-sg2-shaders-common::diffuse-env-map h)
+                    handle))))
+          (:specular
+           (ecase mode
+             (:cube
+              (setf (gethash '3bgl-sg2-shaders-common::specular-cube-map h)
+                    handle))
+             (:equirectangular
+              (setf (gethash '3bgl-sg2-shaders-common::specular-env-map h)
+                    handle)))))))))
 
 (defun write-globals ()
   (let* ((rm *resource-manager*)

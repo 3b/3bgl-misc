@@ -84,6 +84,7 @@
 (defconstant +cook-torrance-shading+ 8 :int)
 (defconstant +no-shading+ 9 :int)
 (defconstant +fresnel-shading+ 10 :int)
+(defconstant +skybox-shading+ -1 :int)
 
 
 
@@ -167,24 +168,62 @@
       (setf (@ samples ambient) (sample tex-ambient (vec4 0.58 0.58 0.58 1)))
       (setf (@ samples opacity) (sample tex-opacity (vec4 1 0 0 1)))
       (setf (@ samples height) (sample tex-height (vec4 0.5 0 0 1)))
-      (setf (@ samples normals) (sample tex-normals (vec4 0 1 0 1)))
+      (setf (@ samples normals) (sample tex-normals (vec4 0.5 0.5 1 1)))
       (setf (@ samples specular) (sample tex-specular (vec4 0 0 0 1)))
       (setf (@ samples emissive) (sample tex-emissive (vec4 0 0 0 0)))
       (return samples))))
 
+(defconstant +env-map-rot+ 324000.0 :float)
 
-(defun fragment ()
-  (let* ((mat (aref materials (clamp (if (= count 6)
-                                         0
-                                         material-id)
-                                     0 (1- count))))
-         (samples (sample-textures mat (@ ins uv)))
+
+(defun sample-ibl-diffuse (dir)
+  (let* ((c (vec4 1 0 1 1))
+         (a (/ (float now) +env-map-rot+))
+         (ss (sin a))
+         (cc (cos a))
+         (r (mat3 cc 0 ss
+                  0 -1 0
+                  (- ss) 0 cc))
+         (dir (normalize (* r  dir))))
+    (return (texture diffuse-cube-map dir)))
+  #++
+  (let* ((c (vec4 1 0 1 1))
+         (a (/ (float now) +env-map-rot+))
+         (ss (sin a))
+         (cc (cos a))
+         (r (mat3 cc 0 ss
+                  0 -1 0
+                  (- ss) 0 cc))
+         (dir (normalize (* r  dir))))
+    (cond
+      ((= env-map-mode +env-map-mode-none+)
+       c)
+      ((= env-map-mode +env-map-mode-cube+)
+       (setf c (texture diffuse-cube-map dir)))
+      ((= env-map-mode +env-map-mode-equirectangular+)
+       (let ((tc (vec2 (atan (.z dir) (.x dir))
+                       (asin (.y dir)))))
+         (setf tc (+ 0.5 (* tc +env-map-scale+)))
+         ;; try to avoid problems at poles
+         (when (>= (abs (.y dir)) 0.9999)
+           (setf tc (vec2 0.5
+                          (* (- 1 (/ (.y (texture-size diffuse-env-map 0))))
+                             (sign (.y dir))))))
+         (setf c (texture-lod diffuse-env-map tc 0))
+         #++(setf c (texture diffuse-env-map tc))))
+      ((= env-map-mode 3) ;; temp debug
+       (setf c (vec4 dir 1))))
+    (return c)))
+
+
+(defun normal-shading (mat)
+  (declare (type -material mat))
+  (let* ((samples (sample-textures mat (@ ins uv)))
          (a (* (@ mat mat-opacity)
                (.a (@ samples diffuse))
                (.x (@ samples opacity))
                1
-                                        ;(.a (@ ins color))
-               ))
+               #++(.a (@ ins color))))
          (normal (normalize
                   (* (@ ins tbn)
                      (- (* 2 (.xyz (@ samples normals))) 1))))
@@ -206,7 +245,12 @@
          (f0 (mix (vec3 f0-default)
                   (.rgb base-color)
                   metal))
+         (irradiance (sample-ibl-diffuse normal))
+         (ks (+ f0
+                (* (- 1 f0)
+                   (expt (- 1 n-dot-v) 5))))
          (diffuse (/ base-color pi))
+         (ambient (* (- 1 ks) (.xyz irradiance) base-color))
          (a2 (* roughness2 roughness2))
          (specular-d (/ a2
                         (* pi (expt (1+ (* (expt n-dot-h 2)
@@ -223,15 +267,17 @@
 
          (specular-f (+ f0
                         (* (- 1 f0)
-                           (expt (- 1 v-dot-h) 5)
-                           )))
+                           (expt (- 1 v-dot-h) 5))))
          (specular (/ (* specular-d specular-f specular-g)
-                      (max (* 4 n-dot-v n-dot-l) 0.001)) )
-         (c (* n-dot-l
-               (+ (* (- 1 specular-f)
-                     (vec3 (- 1 metal))
-                     diffuse)
-                  specular))))
+                      (max (* 4 n-dot-v n-dot-l) 0.001)))
+         (c ;normal
+           ;(vec3 (@ ins uv) 0)
+            (+ ambient
+               (* n-dot-l
+                  (+ (* (- 1 specular-f)
+                        (vec3 (- 1 metal))
+                        diffuse)
+                     specular)))))
     (declare (type :vec3 c))
     (when (zerop a)
       (discard))
@@ -240,4 +286,56 @@
           (+ (.xyz c)
              (.xyz (@ samples emissive))))
 
-    (setf out-color (vec4 c 1))))
+    (return (vec4 c 1))))
+
+(defun skybox-shader (mat)
+  (declare (type -material mat)
+           (ignore mat))
+  (let* ((c (vec4 1 0 1 1))
+         (a (/ (float now) +env-map-rot+))
+         (ss (sin a))
+         (cc (cos a))
+         (r (mat3 cc 0 ss
+                  0 -1 0
+                  (- ss) 0 cc))
+         (dir (normalize (* r ;(@ ins world-pos)
+                            (- (@ ins world-pos) eye-pos)))))
+   (return (texture ;diffuse-cube-map
+            specular-cube-map
+            dir)))
+  #++
+  (let* ((c (vec4 1 0 1 1))
+         (a (/ (float now) +env-map-rot+))
+         (ss (sin a))
+         (cc (cos a))
+         (r (mat3 cc 0 ss
+                  0 -1 0
+                  (- ss) 0 cc))
+         (dir (normalize (* r #++(@ ins world-pos)
+                            (- (@ ins world-pos) eye-pos)))))
+    (cond
+      ((= env-map-mode +env-map-mode-none+)
+       (discard))
+      ((= env-map-mode +env-map-mode-cube+)
+       (setf c (texture specular-cube-map dir)))
+      ((= env-map-mode +env-map-mode-equirectangular+)
+       (let ((tc (vec2 (atan (.z dir) (.x dir))
+                       (asin (.y dir)))))
+         (setf tc (+ 0.5 (* tc +env-map-scale+)))
+         ;; try to avoid problems at poles
+         (when (>= (abs (.y dir)) 0.9999)
+           (setf tc (vec2 0.5
+                          (* (- 1 (/ (.y (texture-size specular-env-map 0))))
+                             (sign (.y dir))))))
+         ;; just using mip 0 for skybox for now, since mipmapping
+         ;; breaks when angle wraps
+         (setf c (texture-lod specular-env-map tc 0))))
+      ((= env-map-mode 3) ;; temp debug
+       (setf c (vec4 dir 1))))
+    (return c)))
+
+(defun fragment ()
+  (let ((mat (aref materials (clamp material-id 0 (1- count)))))
+   (if (= (@ mat mat-shading-model) -1)
+       (setf out-color (skybox-shader mat))
+       (setf out-color (normal-shading mat)))))

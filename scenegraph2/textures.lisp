@@ -37,7 +37,7 @@
                     &key
                       (min-filter :linear-mipmap-linear)
                       (mag-filter :linear)
-                      (max-anisotropy 0.0)
+                      (max-anisotropy 1.0)
                       (min-lod -1000)
                       (max-lod 1000)
                       ;;(swizzle-r :red)
@@ -97,6 +97,7 @@
                  (gl:sampler-parameter s :texture-border-color border-color)
                  (gl:sampler-parameter s :texture-compare-mode compare-mode)
                  (gl:sampler-parameter s :texture-compare-func compare-func)
+                 (gl:sampler-parameter s :texture-cube-map-seamless t)
                  (make-instance 'sampler :sampler s :spec spec))))
         (setf (gethash name (samplers *resource-manager*))
               (make-sampler))))))
@@ -139,10 +140,86 @@
     :truecolor 3 :truecolour 3
     :truecolor-alpha 4 :truecolour-alpha 4))
 
-(defun load-texture-pngload (name)
+
+(defparameter *layouts*
+  (alexandria:plist-hash-table
+   ;; index by layer # (= +x -x +y -y +z -z), = column,row
+   '(:horizontal #((2 1) (0 1) (1 0) (1 2) (1 3) (1 1))
+     :vertical #((2 1) (0 1) (1 0) (1 2) (1 1) (1 3)))))
+
+(defun flip-region-x (d x1 y1 w h stride)
+  (declare (type (simple-array (unsigned-byte 8) (*)) d))
+  (loop for y from y1 below (+ y1 h)
+        for row = (* y stride)
+        do (loop with w/2 = (/ w 2)
+                 with end = (+ x1 row w)
+                 with start = (+ x1 row)
+                 for x below w/2
+                 do (rotatef (aref d (+ x start )) (aref d (- end x 1))))))
+
+(defun flip-region-y (d x1 y1 w h stride)
+  (declare (type (simple-array (unsigned-byte 8) (*)) d))
+  (loop with h/2 = (/ h 2)
+        for y below h/2
+        for r1 = (+ x1 (* (+ y1 y) stride))
+        for r2 = (+ x1 (* (+ y1 (- h y 1)) stride))
+        do (rotatef (subseq d r1 (+ r1 w))
+                    (subseq d r2 (+ r2 w)))))
+
+(defvar *cube-faces* '(:texture-cube-map-positive-x
+                       :texture-cube-map-negative-x
+                       :texture-cube-map-positive-y
+                       :texture-cube-map-negative-y
+                       :texture-cube-map-positive-z
+                       :texture-cube-map-negative-z))
+
+(defun map-cube-faces (data fun width height pixel-bytes
+                       &key (layout :guess) data-is-static)
+  (when (eq layout :guess)
+    (unless (or (= (* width 3/4) height)
+                (= (* width 4/3) height))
+      (cerror "continue"
+              "failed to guess orientation of cube map, size = ~s x ~s?"
+              width height))
+    (if (>= height width)
+        (setf layout :vertical)
+        (setf layout :horizontal)))
+  (flet ((body (p)
+           (loop
+             with cw = (floor
+                        (if (eq layout :vertical) (/ width 3) (/ width 4)))
+             with ch = (floor
+                        (if (eq layout :vertical) (/ height 4) (/ height 3)))
+             ;; hack to make it load something reasonable if it gets default
+             ;; (square) texture
+             with wh = (min cw ch)
+             with stride-bytes = (* pixel-bytes width)
+             for layer in *cube-faces*
+             for (i j) across (gethash layout *layouts*)
+             for x = (* i cw)
+             for y = (* j ch)
+             when (eq layer :texture-cube-map-negative-z)
+               do (flip-region-y p x y wh wh stride-bytes)
+                  (flip-region-x p x y wh wh stride-bytes)
+             do (funcall fun layer
+                         (cffi:inc-pointer
+                          (static-vectors:static-vector-pointer p)
+                          (+ (* pixel-bytes x) (* stride-bytes y)))
+                         wh wh width))))
+    (if data-is-static
+        (body data)
+        ;; copy to foreign memory once so we don't copy whole thing for
+        ;; each face in tex-image-2d
+        (static-vectors:with-static-vector (p (length data)
+                                              :element-type
+                                              '(unsigned-byte 8)
+                                              :initial-contents data)
+          (body p)))))
+
+(defun load-texture-pngload (name &key cube)
   (pngload:with-png-in-static-vector (png name :flip-y t)
     (when png
-      (let* ((tex (gl:create-texture :texture-2d))
+      (let* ((tex (gl:create-texture (if cube :texture-cube-map :texture-2d)))
              (w (pngload:width png))
              (h (pngload:height png))
              (channels (/ (array-total-size (pngload:data png))
@@ -163,22 +240,46 @@
                                          (2 :unsigned-short))
                                        (static-vectors:static-vector-pointer
                                         (pngload:data png))))
-        (progn
-          (gl:bind-texture :texture-2d tex)
-          (%gl:tex-image-2d :texture-2d 0
-                            (cffi:foreign-enum-value
-                             '%gl:enum
-                             (get-internal-format channels 1))
-                            w h
-                            0
-                            (ecase channels
-                              (1 :red) (2 :rg) (3 :rgb) (4 :rgba))
-                            (ecase bytes
-                              (1 :unsigned-byte)
-                              (2 :unsigned-short))
-                            (static-vectors:static-vector-pointer
-                             (pngload:data png)))
-          (gl:bind-texture :texture-2d 0))
+        (if cube
+            (progn
+              (gl:bind-texture :texture-cube-map tex)
+              (map-cube-faces
+               (pngload:data png)
+               (lambda (face pointer w h pixel-stride)
+                 (gl:pixel-store :unpack-row-length pixel-stride)
+                 (%gl:tex-image-2d face 0
+                                   (cffi:foreign-enum-value
+                                    '%gl:enum
+                                    (get-internal-format channels 1))
+                                   w h
+                                   0
+                                   (ecase channels
+                                     (1 :red) (2 :rg) (3 :rgb) (4 :rgba))
+                                   (ecase bytes
+                                     (1 :unsigned-byte)
+                                     (2 :unsigned-short))
+                                   pointer))
+               w h (* channels bytes)
+               :data-is-static t)
+              (gl:pixel-store :unpack-row-length 0)
+              (gl:bind-texture :texture-cube-map 0))
+            (progn
+              (gl:bind-texture :texture-2d tex)
+              (%gl:tex-image-2d :texture-2d 0
+                                (cffi:foreign-enum-value
+                                 '%gl:enum
+                                 (get-internal-format channels 1))
+                                w h
+                                0
+                                (ecase channels
+                                  (1 :red) (2 :rg) (3 :rgb) (4 :rgba))
+                                (ecase bytes
+                                  (1 :unsigned-byte)
+                                  (2 :unsigned-short))
+                                (static-vectors:static-vector-pointer
+                                 (pngload:data png)))
+              (gl:bind-texture :texture-2d 0)))
+        (gl:enable :texture-cube-map-seamless)
         (gl:generate-texture-mipmap tex)
         tex))))
 
@@ -201,7 +302,86 @@
                        do (rotatef (row-major-aref image (+ y1 i))
                                    (row-major-aref image (+ y2 i)))))))))
 
-(defun load-texture-opticl (name)
+(defun equirectangular-to-cube (src-tex dest-tex format w)
+  (let ((program (get-program
+                  :compute '3bgl-sg2-shaders-common::equirectangular-to-cube)))
+    (gl:bind-texture :texture-2d src-tex)
+    (%gl:bind-image-texture 1 dest-tex 0 t 0 :read-write format)
+    (setf (3bgl-shaders::uniform program "e2c-in") 0)
+    (setf (3bgl-shaders::uniform program "e2c-out") 1)
+    (3bgl-shaders::use-program program)
+    (%gl:dispatch-compute (floor w 8) (floor w 8) 6))
+  (%gl:bind-image-texture 1 0 0 t 0 :read-write format))
+
+
+(defun load-texture-hdr (name &key cube)
+  (let ((hdr (3bgl-radiance-hdr::read-hdr-file name)))
+    (when hdr
+      (let* ((tex (gl:create-texture (if cube :texture-cube-map :texture-2d)))
+             (w (3bgl-radiance-hdr::width hdr))
+             (h (3bgl-radiance-hdr::height hdr)))
+        ;; fixme: figure out how to do this with immutable textures...
+        (cond
+          ;; assume 3/4 or 4/3 aspect ratio is cube cross
+          ((and cube (or (= w (* 4/3 h))
+                         (= h (* 4/3 w))))
+           (gl:bind-texture :texture-cube-map tex)
+           (3bgl-radiance-hdr::map-cube-faces
+            hdr
+            (lambda (face pointer w h pixel-stride)
+              (gl:pixel-store :unpack-row-length pixel-stride)
+              (gl:tex-image-2d face 0
+                               :rgb9-e5
+                               w h
+                               0
+                               :rgb
+                               :unsigned-int-5-9-9-9-rev
+                               pointer)))
+           (gl:pixel-store :unpack-row-length 0)
+           (gl:bind-texture :texture-cube-map 0))
+          (cube
+           ;; for any other aspect ratio load it as equirectangular and
+           ;; convert to cube manually
+           (let ((temp-tex (gl:create-texture :texture-2d))
+                 ;; fixme: decide how big cube map should be?
+                 ;; (for now, just using width / 4)
+                 (cw (/ w 4)))
+             ;; make cube faces a multiple of 8 so we can use 8x8
+             ;; compute shader more easily
+             (setf cw (* 8 (ceiling cw 8)))
+             (unwind-protect
+                  (progn
+                    (gl:bind-texture :texture-2d temp-tex)
+                    (gl:tex-image-2d :texture-2d 0
+                                     :rgb9-e5
+                                     w h
+                                     0
+                                     :rgb
+                                     :unsigned-int-5-9-9-9-rev
+                                     (3bgl-radiance-hdr::data hdr))
+                    (gl:generate-texture-mipmap temp-tex)
+                    (%gl:texture-storage-2d tex
+                                            5
+                                            :rgba16f
+                                            cw cw)
+                    (equirectangular-to-cube temp-tex tex :rgba16f cw))
+               (gl:delete-texture temp-tex))
+             (gl:bind-texture :texture-2d 0)))
+          (t
+           (gl:bind-texture :texture-2d tex)
+           (gl:tex-image-2d :texture-2d 0
+                            :rgb9-e5
+                            w h
+                            0
+                            :rgb
+                            :unsigned-int-5-9-9-9-rev
+                            (3bgl-radiance-hdr::data hdr))
+           (gl:bind-texture :texture-2d 0)))
+        (gl:enable :texture-cube-map-seamless)
+        (gl:generate-texture-mipmap tex)
+        tex))))
+
+ (defun load-texture-opticl (name)
   (let ((img (opticl:read-image-file name)))
     (when img
       (let* ((tex (gl:create-texture :texture-2d))
@@ -233,16 +413,38 @@
         (gl:generate-texture-mipmap tex)
         tex))))
 
+
 (defun load-texture-file (name &key &allow-other-keys)
   ;; todo: support more than :texture-2d
   (let* ((f (probe-file (merge-pathnames name))))
     (when f
-      (if (alexandria:ends-with-subseq ".png" name :test 'char-equal)
-          (load-texture-pngload f)
-          (load-texture-opticl f)))))
+      (cond
+        ((alexandria:ends-with-subseq ".png" (namestring f) :test 'char-equal)
+         (load-texture-pngload f))
+        ((alexandria:ends-with-subseq ".hdr" (namestring f) :test 'char-equal)
+         (load-texture-hdr f))
+        (t
+         (load-texture-opticl f))))))
+
+(defun load-cube-texture-file (name &key &allow-other-keys)
+  (let* ((f (probe-file (merge-pathnames name)))
+         (ns (namestring f)))
+    (when f
+      (cond
+        ((alexandria:ends-with-subseq ".png" ns :test 'char-equal)
+         (load-texture-pngload f :cube t))
+        ((alexandria:ends-with-subseq ".hdr" ns :test 'char-equal)
+         (load-texture-hdr f :cube t))
+        (t
+         (error "cubemap loading not implemented for opticl yet~%(loading ~s)"
+                name))))))
 
 (defmethod load-texture ((type (eql :file)) name  &key target)
-  (load-texture-file name :target target))
+  (if (eql target :texture-cube-map)
+      (load-cube-texture-file name :target target)
+      (load-texture-file name :target target)))
+
+
 
 #++ ;; todo
 (defmethod load-texture ((type (eql :stream)) name  &key)
@@ -257,11 +459,15 @@
   #+sbcl (sb-concurrency:enqueue (list :texture target type name) *texture-load-queue*)
   #-sbcl (push (list :texture target type name) *texture-load-queue*))
 
-
+(defmethod normalize-texture-name-for-loader (type name)
+  name)
+(defmethod normalize-texture-name-for-loader ((type (eql :file)) name)
+  (probe-file name))
 
 (defun get-texture (name &key (type :file) (target :texture-2d))
   (when (typep name '(or texture null))
     (return-from get-texture name))
+  (setf name (normalize-texture-name-for-loader type name))
   ;; todo: load files on another thread, return a debug texture until
   ;; actually loaded
   (let ((s (list type name target)))
@@ -270,10 +476,11 @@
           (when tx
             (setf (gethash s (textures *resource-manager*))
                   (make-instance 'texture
-                                 :texture tx
+                                 :texture (if (typep tx 'texture)
+                                              (texture tx)
+                                              tx)
                                  :target target
                                  :source s)))))))
-
 
 (defun reset-texture (tex)
   (when (texture tex)

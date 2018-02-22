@@ -17,6 +17,9 @@
       (:debug-emissive (get-texture
                         (merge-pathnames "debug-emissive-texture.png")
                         :type :file :target target))
+      (:debug-skybox-cube (get-texture
+                           (merge-pathnames "debug-skybox-cube.png")
+                           :type :file :target target))
       (t (get-texture (merge-pathnames "debug-texture.png")
                       :type :file :target target)))))
 
@@ -29,4 +32,6 @@
       (:light (load-object :file (merge-pathnames "light.obj")
                            :sg sg :parent-node parent-node))
       (:box (load-object :file (merge-pathnames "box.obj")
-                         :sg sg :parent-node parent-node)))))
+                         :sg sg :parent-node parent-node))
+      (:skybox (load-object :file (merge-pathnames "skybox.obj")
+                            :sg sg :parent-node parent-node)))))
