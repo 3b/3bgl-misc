@@ -361,7 +361,7 @@
                                      (3bgl-radiance-hdr::data hdr))
                     (gl:generate-texture-mipmap temp-tex)
                     (%gl:texture-storage-2d tex
-                                            5
+                                            (max 1 (floor (log cw 2)))
                                             :rgba16f
                                             cw cw)
                     (equirectangular-to-cube temp-tex tex :rgba16f cw))
@@ -459,15 +459,9 @@
   #+sbcl (sb-concurrency:enqueue (list :texture target type name) *texture-load-queue*)
   #-sbcl (push (list :texture target type name) *texture-load-queue*))
 
-(defmethod normalize-texture-name-for-loader (type name)
-  name)
-(defmethod normalize-texture-name-for-loader ((type (eql :file)) name)
-  (probe-file name))
-
 (defun get-texture (name &key (type :file) (target :texture-2d))
   (when (typep name '(or texture null))
     (return-from get-texture name))
-  (setf name (normalize-texture-name-for-loader type name))
   ;; todo: load files on another thread, return a debug texture until
   ;; actually loaded
   (let ((s (list type name target)))

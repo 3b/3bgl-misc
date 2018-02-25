@@ -4,7 +4,7 @@
 
 ;; mixin for handling simple timing graphs
 (defclass timing-helper ()
-  ((max-queries :reader max-queries :initform 16 :initarg :max-timer-queries)
+  ((max-queries :reader max-queries :initform 32 :initarg :max-timer-queries)
    (query-index :accessor query-index :initform 0)
    (timestamps :accessor timestamps :initform nil)
    (cpu-timestampe :accessor cpu-timestamps :initform nil)
@@ -49,12 +49,18 @@
 
 (defmethod mark ((w timing-helper) &key id)
   (let ((n (query-index w)))
-    (assert (< n (max-queries w)))
+    (when (>= n (max-queries w))
+      (setf (query-index w) 0)
+      (error "too many timer queries? n=~s max=~s" n (max-queries w)))
     (%gl:query-counter (nth n (car (timestamps w))) :timestamp)
     (setf (aref (car (cpu-timestamps w)) n) (basecode::now))
     (setf (aref (car (timestamp-masks w)) n) t)
     (setf (gethash (or id n) (car (timestamp-ids w))) n)
     (incf (query-index w))))
+
+(defmethod update-times (w)
+  ;; do nothing if not timing
+  nil)
 
 (defmethod update-times ((w timing-helper))
   ;; look at previous frame's data
