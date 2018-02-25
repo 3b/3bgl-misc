@@ -1,8 +1,7 @@
 #++(delete-package '3bgl-ai-shaders)
 (cl:defpackage 3bgl-ai-shaders
   (:use :3bgl-glsl/cl #++ :3bgl-material-lib-shaders
-        :3bgl-sg2-shaders-common)
-)
+        :3bgl-sg2-shaders-common))
 
 (cl:in-package 3bgl-ai-shaders)
 
@@ -152,51 +151,50 @@
     (loop for i in textures
           sum (ash 1 (getf tx i)))))
 
-(defun sample-textures (mat uv)
-  (declare (-material mat))
-  (macrolet ((sample (tex &optional (default '(vec4 0 0 0 1)))
-               (let ((tx '(tex-none 0
-                           tex-diffuse 1
-                           tex-specular 2
-                           tex-ambient 3
-                           tex-emissive 4
-                           tex-height 5
-                           tex-normals 6
-                           tex-shininess 7
-                           tex-opacity 8
-                           tex-displacement 9
-                           tex-lightmap 10
-                           tex-reflection 11
-                           tex-unknown 12)))
-                 `(if (zerop (logand mask ,(ash 1 (getf tx tex))))
-                      ,default
-                      (texture (@ mat ,tex) uv)))))
-    (let ((mask (@ mat tex-present))
-          (samples))
-      (declare (type texture-samples samples))
-      (setf (@ samples diffuse) (sample tex-diffuse (vec4 1 1 1 1)
-                                        #++(vec4 0.58 0.58 0.58 1)))
-      (setf (@ samples ambient) (sample tex-ambient (vec4 0.58 0.58 0.58 1)))
-      (setf (@ samples opacity) (sample tex-opacity (vec4 1 0 0 1)))
-      (setf (@ samples height) (sample tex-height (vec4 0.5 0 0 1)))
-      (setf (@ samples normals) (sample tex-normals (vec4 0.5 0.5 1 1)))
-      (setf (@ samples specular) (sample tex-specular (vec4 0 0 0 1)))
-      (setf (@ samples emissive) (sample tex-emissive (vec4 0 0 0 0)))
-      (return samples))))
+(defmacro with-texture-samples ((mat uv &optional (lod 0)) &body body)
+  (let ((tx '(tex-none 0
+              tex-diffuse 1
+              tex-specular 2
+              tex-ambient 3
+              tex-emissive 4
+              tex-height 5
+              tex-normals 6
+              tex-shininess 7
+              tex-opacity 8
+              tex-displacement 9
+              tex-lightmap 10
+              tex-reflection 11
+              tex-unknown 12))
+        (defaults '(tex-diffuse (vec4 1 1 1 1)
+                    tex-ambient (vec4 0.58 0.58 0.58 1)
+                    tex-opacity (vec4 1 1 1 1)
+                    tex-height (vec4 0.5 0 0 1)
+                    tex-normals (vec4 0.5 0.5 1 1)
+                    tex-specular (vec4 0 0 0 1)
+                    tex-emissive (vec4 0 0 0 0))))
+    (alexandria:once-only (mat uv)
+      `(let ((tex-present (@ ,mat tex-present)))
+         (macrolet ((sample (tex &optional (tlod ,lod))
+                      (unless (getf ',tx tex)
+                        (error "unknown texture ~s?" tex))
+                      #++`(texture-lod (@ ,',mat ,tex)
+                                       ,',uv
+                                       (max ,tlod
+                                            (.y (texture-query-lod  (@ ,',mat ,tex)
+                                                                    ,',uv))))
+                      #++`(texture (@ ,',mat ,tex)
+                                   ,',uv
+                                   ,tlod)
+                      `(if (zerop (logand tex-present ,(ash 1 (getf ',tx tex)))
+                                  )
+                           ,(or (getf ',defaults tex) '(vec4 0 0 0 1))
+                           (texture (@ ,',mat ,tex) ,',uv ,tlod))))
+           ,@body)))))
 
 (defconstant +env-map-rot+ 324000.0 :float)
 
-
 (defun sample-ibl-diffuse (dir)
-  (let* ((c (vec4 1 0 1 1))
-         (a (/ (float now) +env-map-rot+))
-         (ss (sin a))
-         (cc (cos a))
-         (r (mat3 cc 0 ss
-                  0 -1 0
-                  (- ss) 0 cc))
-         (dir (normalize (* r  dir))))
-    (return (texture diffuse-cube-map dir)))
+  (return (texture diffuse-cube-map dir))
   #++
   (let* ((c (vec4 1 0 1 1))
          (a (/ (float now) +env-map-rot+))
@@ -206,98 +204,100 @@
                   0 -1 0
                   (- ss) 0 cc))
          (dir (normalize (* r  dir))))
-    (cond
-      ((= env-map-mode +env-map-mode-none+)
-       c)
-      ((= env-map-mode +env-map-mode-cube+)
-       (setf c (texture diffuse-cube-map dir)))
-      ((= env-map-mode +env-map-mode-equirectangular+)
-       (let ((tc (vec2 (atan (.z dir) (.x dir))
-                       (asin (.y dir)))))
-         (setf tc (+ 0.5 (* tc +env-map-scale+)))
-         ;; try to avoid problems at poles
-         (when (>= (abs (.y dir)) 0.9999)
-           (setf tc (vec2 0.5
-                          (* (- 1 (/ (.y (texture-size diffuse-env-map 0))))
-                             (sign (.y dir))))))
-         (setf c (texture-lod diffuse-env-map tc 0))
-         #++(setf c (texture diffuse-env-map tc))))
-      ((= env-map-mode 3) ;; temp debug
-       (setf c (vec4 dir 1))))
-    (return c)))
+    (return (texture diffuse-cube-map dir))))
 
+(defun sample-ibl-specular (roughness f r n-dot-v)
+  (let* ( (color (.rgb (texture-lod specular-cube-map r
+                                    (* (expt roughness 2)
+                                       prefiltered-specular-max-lod))))
+          (brdf (.xy (texture prefiltered-specular-lut (vec2 n-dot-v roughness)))))
+    (return (* color (+ (* f (.x brdf)) (.y brdf))))))
 
 (defun normal-shading (mat)
   (declare (type -material mat))
-  (let* ((samples (sample-textures mat (@ ins uv)))
-         (a (* (@ mat mat-opacity)
-               (.a (@ samples diffuse))
-               (.x (@ samples opacity))
-               1
-               #++(.a (@ ins color))))
-         (normal (normalize
-                  (* (@ ins tbn)
-                     (- (* 2 (.xyz (@ samples normals))) 1))))
-         ;; based on
-         ;; http://blog.selfshadow.com/publications/s2013-shading-course/karis/s2013_pbs_epic_notes_v2.pdf
-         ;; https://learnopengl.com/PBR/Lighting
-         (view-dir (normalize (- eye-pos (@ ins world-pos))))
-         (light-dir (normalize (- (vec3 0 2 0) (@ ins world-pos))))
-         (half-dir (normalize (+ light-dir view-dir)))
-         (v-dot-h (max (dot view-dir half-dir) 0))
-         (n-dot-l (max (dot normal light-dir) 0))
-         (n-dot-h (max (dot normal half-dir) 0))
-         (n-dot-v (max (dot normal view-dir) 0))
-         (roughness (.g (@ samples specular)))
-         (roughness2 (expt roughness 2))
-         (metal (.b (@ samples specular)))
-         (base-color (.xyz (@ samples diffuse)))
-         (f0-default 0.04)
-         (f0 (mix (vec3 f0-default)
-                  (.rgb base-color)
-                  metal))
-         (irradiance (sample-ibl-diffuse normal))
-         (ks (+ f0
-                (* (- 1 f0)
-                   (expt (- 1 n-dot-v) 5))))
-         (diffuse (/ base-color pi))
-         (ambient (* (- 1 ks) (.xyz irradiance) base-color))
-         (a2 (* roughness2 roughness2))
-         (specular-d (/ a2
-                        (* pi (expt (1+ (* (expt n-dot-h 2)
-                                           (- a2 1)))
-                                    2))))
-         (specular-g-k (/ (expt (+ 1 roughness2) 2) 8))
-         (one-minus-specular-g-k (- 1 specular-g-k))
-         (specular-g (* (/ n-dot-l
-                           (+ specular-g-k
-                              (* n-dot-l one-minus-specular-g-k)))
-                        (/ n-dot-v
-                           (+ specular-g-k
-                              (* n-dot-v one-minus-specular-g-k)))))
+  (with-texture-samples (mat (@ ins uv) 1)
+    (let* ((tn (@ mat tex-normals))
+           (l (.y (texture-query-lod (@ mat tex-diffuse) (@ ins uv))))
+           (tex-diffuse (sample tex-diffuse))
+           #++(tex-opacity (sample tex-opacity))
+           (a (* (@ mat mat-opacity)
+                 (.a tex-diffuse)
+                                        ;   (.x tex-opacity)
+                 1
+                 #++(.a (@ ins color))))
+           ;; based on
+           ;; http://blog.selfshadow.com/publications/s2013-shading-course/karis/s2013_pbs_epic_notes_v2.pdf
+           ;; https://learnopengl.com/PBR/Lighting
+           (tex-normal (sample tex-normals))
+           (view-dir (normalize (- eye-pos (@ ins world-pos))))
+           (light-dir (normalize (- (vec3 0 2 0) (@ ins world-pos))))
+           (half-dir (normalize (+ light-dir view-dir)))
+           (v-dot-h (max (dot view-dir half-dir) 0))
 
-         (specular-f (+ f0
-                        (* (- 1 f0)
-                           (expt (- 1 v-dot-h) 5))))
-         (specular (/ (* specular-d specular-f specular-g)
-                      (max (* 4 n-dot-v n-dot-l) 0.001)))
-         (c ;normal
-           ;(vec3 (@ ins uv) 0)
-            (+ ambient
-               (* n-dot-l
-                  (+ (* (- 1 specular-f)
-                        (vec3 (- 1 metal))
-                        diffuse)
-                     specular)))))
-    (declare (type :vec3 c))
-    (when (zerop a)
-      (discard))
+           (normal (normalize
+                    (* (@ ins tbn)
+                       (- (* 2 (.xyz tex-normal)) 1))))
+           (n-dot-l (max (dot normal light-dir) 0))
+           (n-dot-h (max (dot normal half-dir) 0))
+           (n-dot-v (max (dot normal view-dir) 0))
+           (tex-specular (sample tex-specular))
+           (roughness (.g tex-specular))
+           (roughness2 (expt roughness 2))
+           (metal (.b tex-specular) )
+           (base-color (.xyz tex-diffuse))
+           (f0-default 0.04)
+           (f0 (mix (vec3 f0-default)
+                    (.rgb base-color)
+                    metal))
+           (ks (+ f0
+                  (* (- 1 f0)
+                     (expt (- 1 n-dot-v) 5))))
+           (diffuse (/ base-color pi))
+           (a2 (* roughness2 roughness2))
+           (specular-d (/ a2
+                          (* pi (expt (1+ (* (expt n-dot-h 2)
+                                             (- a2 1)))
+                                      2))))
+           (specular-g-k (/ (expt (+ 1 roughness2) 2) 8))
+           (one-minus-specular-g-k (- 1 specular-g-k))
+           (specular-g (* (/ n-dot-l
+                             (+ specular-g-k
+                                (* n-dot-l one-minus-specular-g-k)))
+                          (/ n-dot-v
+                             (+ specular-g-k
+                                (* n-dot-v one-minus-specular-g-k)))))
 
-    (setf (.xyz c)
-          (+ (.xyz c)
-             (.xyz (@ samples emissive))))
+           (specular-f (+ f0
+                          (* (- 1 f0)
+                             (expt (- 1 v-dot-h) 5))))
+           (ispec (sample-ibl-specular roughness
+                                       specular-f (reflect view-dir normal)
+                                       n-dot-v))
+           (specular (/ (* specular-d specular-f specular-g)
+                        (max (* 4 n-dot-v n-dot-l) 0.001)))
+           (irradiance (sample-ibl-diffuse normal))
+           (ambient (* (- 1 ks) (.xyz irradiance) base-color))
 
-    (return (vec4 c 1))))
+           (c                           ;normal
+                                        ;(vec3 (@ ins uv) 0)
+             (+ ambient
+                0
+                ispec
+                #++(* n-dot-l
+                      (+ (* (- 1 specular-f)
+                            (vec3 (- 1 metal))
+                            diffuse)
+                         specular)))))
+      (declare (type :vec3 c))
+      #++(when (zerop a)
+           (discard))
+
+      #++(setf (.xyz c)
+               #++(.xyz tex-diffuse)
+               (+ (.xyz c)
+                  (.xyz (sample tex-emissive))))
+
+      (return (vec4 c 1)))))
 
 (defun skybox-shader (mat)
   (declare (type -material mat)
@@ -309,11 +309,13 @@
          (r (mat3 cc 0 ss
                   0 -1 0
                   (- ss) 0 cc))
-         (dir (normalize (* r ;(@ ins world-pos)
-                            (- (@ ins world-pos) eye-pos)))))
-   (return (texture ;diffuse-cube-map
-            specular-cube-map
-            dir)))
+         (dir (normalize (- eye-pos (@ ins world-pos))
+                         #++(* r #++ (@ ins world-pos)
+                                 (- (@ ins world-pos) eye-pos)))))
+    (return (texture-lod
+             specular-cube-map
+             dir
+             0 #++(expt (/ (float (mod now 4000)) 1000)2))))
   #++
   (let* ((c (vec4 1 0 1 1))
          (a (/ (float now) +env-map-rot+))
@@ -323,7 +325,7 @@
                   0 -1 0
                   (- ss) 0 cc))
          (dir (normalize (* r #++(@ ins world-pos)
-                            (- (@ ins world-pos) eye-pos)))))
+                              (- (@ ins world-pos) eye-pos)))))
     (cond
       ((= env-map-mode +env-map-mode-none+)
        (discard))
@@ -348,6 +350,6 @@
 (defun fragment ()
   (declare (layout (:in nil :early-fragment-tests :early-fragment-tests)))
   (let ((mat (aref materials (clamp material-id 0 (1- count)))))
-   (if (= (@ mat mat-shading-model) -1)
-       (setf out-color (skybox-shader mat))
-       (setf out-color (normal-shading mat)))))
+    (if (= (@ mat mat-shading-model) -1)
+        (setf out-color (skybox-shader mat))
+        (setf out-color (normal-shading mat)))))

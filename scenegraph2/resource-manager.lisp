@@ -60,6 +60,7 @@
     (setf (gethash '3bgl-sg2-shaders-common::diffuse-cube-map g) 0)
     (setf (gethash '3bgl-sg2-shaders-common::specular-env-map g) 0)
     (setf (gethash '3bgl-sg2-shaders-common::specular-cube-map g) 0)
+    (setf (gethash '3bgl-sg2-shaders-common::prefiltered-specular-max-lod g) 0)
     (setf (gethash '3bgl-sg2-shaders-common::prefiltered-specular-lut g) 0)))
 
 (defmethod initialize-instance :after ((m resource-manager) &key)
@@ -376,6 +377,7 @@
       (s 3bgl-sg2-shaders-common::specular-env-map 0)
       (s 3bgl-sg2-shaders-common::diffuse-cube-map 0)
       (s 3bgl-sg2-shaders-common::diffuse-env-map 0)
+      (s 3bgl-sg2-shaders-common::prefiltered-specular-max-lod 0)
       (s 3bgl-sg2-shaders-common::prefiltered-specular-lut 0))
     size))
 

@@ -47,7 +47,8 @@
    #:+env-map-mode-none+
    #:now
    #:+env-map-scale+
-   #:prefiltered-specular-lut))
+   #:prefiltered-specular-lut
+   #:prefiltered-specular-max-lod))
 
 (in-package #:3bgl-sg2-shaders-common)
 
@@ -70,6 +71,7 @@
   ;; todo: separate skybox map?
   (specular-env-map :sampler-2d)
   (specular-cube-map :sampler-cube)
+  (prefiltered-specular-max-lod :uint) ;; # of mipmaps of specular-cube-map
   (prefiltered-specular-lut :sampler-2d)
   (diffuse-env-map :sampler-2d)
   (diffuse-cube-map :sampler-cube))
@@ -142,6 +144,12 @@
                 (* (float (bitfield-reverse i))
                    2.3283064365386963e-10))))
 
+(defun distribution-ggx (n-dot-h r)
+  (let* ((a (expt r 2))
+         (a2 (expt a 2))
+         (d2 (expt n-dot-h 2)))
+    (return (/ a2
+               (* pi (expt (1+ (* d2 (- a2 1))) 2))))))
 
 (defun importance-sample-ggx (epsilon tangent-space roughness)
   (let* ((a (expt roughness 2))
@@ -195,13 +203,23 @@
          (c (vec3 0)))
     (dotimes (i pfs-sample-count)
       (let* ((e (hammersly2d i pfs-sample-count))
-             (h (importance-sample-ggx e tangent-space  pfs-roughness
-                                       ))
+             (h (importance-sample-ggx e tangent-space  pfs-roughness))
              (l (normalize (- (* 2 (dot n h) h) n)))
-             (n-dot-l (max 0 (dot n l))))
+             (n-dot-l (max 0 (dot n l)))
+             (lod 0.0))
         (when (> n-dot-l 0)
+          (unless (= 0 pfs-roughness)
+            (let* ((n-dot-h (dot n h))
+                   (h-dot-v (dot h n))
+                   (d (float (distribution-ggx n-dot-h pfs-roughness)))
+                   (inv-pdf (/ (* 4 h-dot-v)
+                               (+ 0.0001 (* d n-dot-h))))
+                   (res 512 #++(.x (texture-size pfs-in 0)))
+                   (tex (/ (* 4 pi)
+                           (* 6 res res))))
+              (setf lod (* 0.5 (log2 (/ inv-pdf tex))))))
           (incf c (* n-dot-l
-                     (.rgb (texture pfs-in l))))
+                     (.rgb (texture-lod pfs-in l lod))))
           (incf w n-dot-l))))
     (image-store pfs-out (ivec3 pos)
                  (vec4 (/ c w) 1))))
