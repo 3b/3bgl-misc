@@ -33,9 +33,9 @@
 
 (output uv :vec2 :stage :vertex :qualifiers (:noperspective))
 (input uv :vec2 :stage :fragment :qualifiers (:noperspective))
-
+(uniform scale :vec2 :stage :vertex :location 1)
 (defun mirror-window-vertex ()
-  (setf uv uv-coords-in
+  (setf uv (* scale uv-coords-in)
         gl-position (vec4 (.xy position) 0 1)))
 (defun mirror-window-fragment ()
   (setf output-color (texture diffuse uv)))

@@ -42,7 +42,26 @@
    (controller-role-ids :accessor controller-role-ids
                         :initform (make-hash-table))
 
-   (mirror-window-geometry :accessor mirror-window-geometry :initform nil)))
+   (mirror-window-geometry :accessor mirror-window-geometry :initform nil)
+   ;; set to 0.x to enable automatic scaling with minimum of 0.x *
+   ;; fbo size
+   (frame-size-autoscale :accessor frame-size-autoscale :initform nil
+                         :initarg :frame-size-autoscale)
+   (frame-size-current-scale :accessor frame-size-current-scale :initform 1.0
+                             :initarg :frame-size-initial-scale)
+   ;; target render time in ms, resolution will be scaled down if
+   ;; autoscale is enabled and time is not met, and speeds up if far
+   ;; enough below
+   (frame-time-target :accessor frame-time-target :initform 9.0
+                      :initarg :frame-time-target)
+   ;; scales down much faster if above target2
+   (frame-time-target2 :accessor frame-time-target2 :initform 10.0
+                       :initarg :frame-time-target2)
+   (frame-time-queries :accessor frame-time-queries :initform nil)
+   (frame-time-average :accessor frame-time-average :initform 0.0)
+   ;; multiply FBO size by x
+   (supersample-scale :accessor supersample-scale :initform 1.0
+                      :initarg :supersample-scale)))
 
 (defun update-controller-roles (w)
   (format t "left hand id = ~s~%"
@@ -92,30 +111,38 @@
   (when (tracked-device-to-render-model w tracked-device-index)
     (setf (aref (show-tracked-device w) tracked-device-index) t)))
 
+(defparameter *debug-autoscale* nil)
 
 (defmethod basecode-draw ((w basecode-vr))
-  (gl:disable :depth-test)
-  (gl:viewport 0 0 (basecode::width w) (basecode::height w))
-  (gl:bind-framebuffer :framebuffer 0)
-  (gl:clear-color 0.2 (random 0.03) 0 1)
-  (gl:clear :color-buffer)
-  (let ((p (gethash 'mirror (programs w))))
-    (when (and p (mirror-window-geometry w))
-      (destructuring-bind (vao index-size &rest r) (mirror-window-geometry w)
-        (declare (ignore r))
-        (gl:bind-vertex-array vao)
-        (setf (3bgl-shaders::uniform p 'basecode-vr-shaders::diffuse)
-              0)
-        (3bgl-shaders::use-program p)
-        (loop with c = (/ index-size 2)
-              for desc in (list (left-eye-desc w) (right-eye-desc w))
-              for start in (list 0 (* 2 c))
-              do (gl:bind-texture :texture-2d (getf desc 'resolve-texture-id))
-                 (gl:tex-parameter :texture-2d :texture-wrap-s :clamp-to-edge)
-                 (gl:tex-parameter :texture-2d :texture-wrap-t :clamp-to-edge)
-                 (gl:tex-parameter :texture-2d :texture-mag-filter :linear)
-                 (gl:tex-parameter :texture-2d :texture-min-filter :linear)
-                 (%gl:draw-elements :triangles c :unsigned-short start)))))
+  (let ((width (basecode::width w))
+        (height (basecode::height w)))
+    (gl:disable :depth-test)
+    (gl:viewport 0 0 width height)
+    (gl:bind-framebuffer :framebuffer 0)
+    (gl:clear-color 0.2 (random 0.03) 0 1)
+    (gl:clear :color-buffer)
+    (let ((p (gethash 'mirror (programs w))))
+      (when (and p (mirror-window-geometry w))
+        (destructuring-bind (vao index-size &rest r) (mirror-window-geometry w)
+          (declare (ignore r))
+          (gl:bind-vertex-array vao)
+          (setf (3bgl-shaders::uniform p 'basecode-vr-shaders::diffuse)
+                0)
+          (3bgl-shaders::use-program p)
+          (if (or *debug-autoscale* (not (frame-size-autoscale w)))
+              (gl:uniformf 1 1.0 1.0)
+              (gl:uniformf 1
+                           (frame-size-current-scale w)
+                           (frame-size-current-scale w)))
+          (loop with c = (/ index-size 2)
+                for desc in (list (left-eye-desc w) (right-eye-desc w))
+                for start in (list 0 (* 2 c))
+                do (gl:bind-texture :texture-2d (getf desc 'resolve-texture-id))
+                   (gl:tex-parameter :texture-2d :texture-wrap-s :clamp-to-edge)
+                   (gl:tex-parameter :texture-2d :texture-wrap-t :clamp-to-edge)
+                   (gl:tex-parameter :texture-2d :texture-mag-filter :linear)
+                   (gl:tex-parameter :texture-2d :texture-min-filter :linear)
+                   (%gl:draw-elements :triangles c :unsigned-short start))))))
 
   (gl:bind-vertex-array 0)
   (gl:use-program 0))
@@ -176,47 +203,95 @@
   (with-accessors ((left left-eye-desc) (right right-eye-desc)
                    (width render-width) (height render-height)) w
 
-    (loop
-      for desc in (list left right)
-      for eye in '(:left :right)
-      do
+    ;; fixme: use an index+vector or something instead...
+    (rotatef (first (frame-time-queries w))
+             (second (frame-time-queries w))
+             #++(third (frame-time-queries w)))
+    (let* ((s (frame-size-current-scale w))
+           (q (car (frame-time-queries w)))
+           (time (progn
+                   (unless (gl:get-query-object q :query-result-available)
+                     (break "timing query result not available yet?"))
+                   (/ (gl:get-query-object q :query-result-no-wait)
+                      1000000.0)))
+           (time-smooth-rate 0.02)
+           (fta (+ (* time-smooth-rate time)
+                   (* (- 1.0 time-smooth-rate) (frame-time-average w))))
+           (fsa (frame-size-autoscale w))
+           (ftt (frame-time-target w)))
+      (setf (frame-time-average w) fta)
 
-         (gl:enable :multisample)
+      (when fsa
+        (cond
+          ((> time (frame-time-target2 w))
+           ;; scale down a lot if instant time is above high
+           ;; limit. Probably would want sqrt (expt 0.5) if there were
+           ;; no lag in timing, but since time is a frame behind it
+           ;; overshoots quite a bit. 0.3 seems a good compromise for
+           ;; 1 frame of lag.
+           (let ((scale-rate (max 1.04
+                                  (expt (/ time (frame-time-target2 w)) 0.3)
+                                        ;(1+ (/ (1- (/ time (frame-time-target2 w))) 4))
+                                  )))
+             (setf s (min 1.0 (max fsa (/ s scale-rate))))))
+          ((> time ftt)
+           ;; scale down a bit if instant time is high
+           (let ((scale-rate 1.005))
+             (setf s (min 1.0 (max fsa (/ s scale-rate))))))
+          ;; todo: make minimum configurable
+          ((and (< fta (* 0.98 ftt))
+                (< time (* 0.90 ftt)))
+           ;; scale back up if average is low and instant time isn't
+           ;; close to limit
+           (setf s (max 0.01 (min 1.0 (* s 1.005))))))
+        (setf (frame-size-current-scale w) s))
+      (setf (frame-time-target w) 9.0)
+      (setf (frame-time-target2 w) 10.0)
+      (labels ((sf (x)
+                 (* s x))
+               (s (x)
+                 (floor (* s x))))
+        (gl:with-query (:time-elapsed (car (frame-time-queries w)))
+          (gl:enable :multisample)
+          (loop
+            for desc in (list left right)
+            for eye in '(:left :right)
+            do (gl:bind-framebuffer :framebuffer
+                                    (getf desc 'render-framebuffer-id))
+               (gl:viewport 0 0 (s width) (s height))
+               (render-scene w eye)
+               (%gl:blit-named-framebuffer (getf desc 'render-framebuffer-id)
+                                           (getf desc 'resolve-framebuffer-id)
+                                           0 0 (s width) (s height)
+                                           0 0 (s width) (s height)
+                                           :color-buffer
+                                           :linear))
+          (gl:disable :multisample)
+          (gl:bind-framebuffer :read-framebuffer 0)
+          (gl:bind-framebuffer :draw-framebuffer 0)
+          (gl:bind-framebuffer :framebuffer 0))
 
-         (gl:bind-framebuffer :framebuffer (getf desc 'render-framebuffer-id))
-         (gl:viewport 0 0 width height)
+        ;; draw mirror window
+        (basecode-draw w) ;; possibly should use different function and skip this completely?
 
-         (render-scene w eye)
+        ;; submit to API
 
-         (gl:bind-framebuffer :framebuffer 0)
-
-         (gl:disable :multisample)
-
-         (gl:bind-framebuffer :read-framebuffer
-                              (getf desc 'render-framebuffer-id))
-         (gl:bind-framebuffer :draw-framebuffer
-                              (getf desc 'resolve-framebuffer-id))
-
-         (%gl:blit-framebuffer 0 0 width height 0 0 width height
-                               :color-buffer
-                               :linear)
-
-         (gl:bind-framebuffer :read-framebuffer 0)
-         (gl:bind-framebuffer :draw-framebuffer 0)))
-
-  ;; draw mirror window
-  (basecode-draw w) ;; possibly should use different function and skip this completely?
-
-  ;; submit to API
-
-  (vr::submit :left (list 'vr::handle (getf (left-eye-desc w)
-                                            'resolve-texture-id)
-                          'vr::type :open-gl
-                          'vr::color-space :gamma))
-  (vr::submit :right (list 'vr::handle (getf (right-eye-desc w)
-                                             'resolve-texture-id)
-                           'vr::type :open-gl
-                           'vr::color-space :gamma))
+        (vr::submit :left (list 'vr::handle (getf (left-eye-desc w)
+                                                  'resolve-texture-id)
+                                'vr::type :open-gl
+                                'vr::color-space :gamma)
+                    :bounds (list
+                             '3b-openvr::u-min 0.0 '3b-openvr::u-max (sf 1.0)
+                             '3b-openvr::v-min (- 1.0 (sf 1.0))
+                             '3b-openvr::v-max 1.0 ))
+        (vr::submit :right (list 'vr::handle (getf (right-eye-desc w)
+                                                   'resolve-texture-id)
+                                 'vr::type :open-gl
+                                 'vr::color-space :gamma)
+                    :bounds (list
+                             '3b-openvr::u-min 0.0 '3b-openvr::u-max (sf 1.0)
+                             '3b-openvr::v-min (- 1.0 (sf 1.0))
+                             '3b-openvr::v-max 1.0 )))))
 
   ;; swap, glfinish,etc
   (glop:swap-buffers (basecode::%glop-window w))
@@ -271,7 +346,7 @@
   (sb-cga:inverse-matrix
    (vr::get-eye-to-head-transform eye)))
 
-(defmethod create-frame-buffer (width height)
+(defmethod create-frame-buffer (width height samples)
   (let ((render-framebuffer-id (gl:gen-framebuffer))
         (depth-buffer-id (gl:gen-renderbuffer))
         (render-texture-id (gl:gen-texture))
@@ -280,13 +355,13 @@
     (gl:bind-framebuffer :framebuffer render-framebuffer-id)
 
     (gl:bind-renderbuffer :renderbuffer depth-buffer-id)
-    (gl:renderbuffer-storage-multisample :renderbuffer 4 :depth-component
+    (gl:renderbuffer-storage-multisample :renderbuffer samples :depth-component
                                          width height)
     (gl:framebuffer-renderbuffer :framebuffer :depth-attachment
                                  :renderbuffer depth-buffer-id)
 
     (gl:bind-texture :texture-2d-multisample render-texture-id)
-    (%gl:tex-image-2d-multisample :texture-2d-multisample 4 :rgba8
+    (%gl:tex-image-2d-multisample :texture-2d-multisample samples :rgba8
                                   width height t)
     (gl:framebuffer-texture-2d :framebuffer :color-attachment0
                                :texture-2d-multisample render-texture-id 0)
@@ -385,6 +460,13 @@
                              0 (cffi:null-pointer) t)
   (gl:enable :debug-output-synchronous)
 
+  ;; create timer queries for autoscaling
+  (setf (frame-time-queries w)
+        (gl:gen-queries 3))
+  ;; run some queries so w don't have to ignore first 3 frames
+  (loop for q in (frame-time-queries w)
+        do (gl:with-query (:time-elapsed q)))
+
 
   ;; set up shaders used by basecode-vr itself
 
@@ -413,10 +495,12 @@
   ;; set up render targets
   (when vr::*system*
     (destructuring-bind (width height) (vr::get-recommended-render-target-size)
+      (setf width (* width (supersample-scale w)))
+      (setf height (* height (supersample-scale w)))
       (setf (render-width w) width)
       (setf (render-height w) height)
-      (setf (left-eye-desc w) (create-frame-buffer width height))
-      (setf (right-eye-desc w) (create-frame-buffer width height))))
+      (setf (left-eye-desc w) (create-frame-buffer width height 4))
+      (setf (right-eye-desc w) (create-frame-buffer width height 4))))
 
   (setf (mirror-window-geometry w) (setup-mirror-window))
   (setup-render-models w)
