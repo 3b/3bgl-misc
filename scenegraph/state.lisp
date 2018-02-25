@@ -282,6 +282,11 @@
              (apply #'%gl:blend-func-separate blend2)
              (apply #'%gl:blend-func blend2))))))
 
+  ;; depth-func is :never, :always, :lequal, etc
+  (let ((func1 (get-state old :depth-func))
+        (func2 (get-state new :depth-func)))
+    (when (or force (not (eql func1 func2)))
+      (gl:depth-func (or func2 :less))))
 
   ;; front-face is :cw or :ccw
   (let ((front1 (get-state old :front-face))
@@ -447,7 +452,7 @@
        (let ((,default (getf *state-vars* ,key)))
          (when (functionp ,default)
            (setf ,default (funcall ,default)))
-         (when (or (member ,value-var '(nil :default))
+         (when (or (member ,value-var '(:default))
                    (equalp ,value-var ,default))
            (return-from canonicalize-state nil))
          (list ,key
@@ -493,6 +498,11 @@
               (map-into (make-list (get-cached :max-draw-buffers)
                                    :initial-element nil)
                         'identity value)))
+
+(defcan :depth-func (value)
+  ;; todo: restrict to valid values?
+  (assert (keywordp value))
+  value)
 
 (defcan :cull-face (value)
   ;; todo: restrct to valid values?
