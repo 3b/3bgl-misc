@@ -119,6 +119,7 @@
              (:file "resource-manager")
              (:file "material")
              (:file "textures")
+             (:file "derived-texture")
              (:file "file-loader")
              (:file "default-loader")
              (:file "ai-node")
