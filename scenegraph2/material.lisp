@@ -2,6 +2,7 @@
 
 (defclass material (3bgl-ssbo::ssbo)
   ((state :initarg :state :reader state)
+   (depth-state :initarg :depth-state :reader depth-state :initform nil)
    (material-index :initform (make-hash-table :test 'equalp) :reader material-index)
    ;; should be hash table of default values for material params
    ;; currently evaluated when writer is compiled, so need to manually
@@ -85,22 +86,24 @@
                                    (class (if (and (consp name)
                                                    (find-class (car name)))
                                               (car name)
-                                              'material)))
+                                              'material))
+                                   (depth-state state))
   (when (get-material name)
     (delete-material (gethash name (materials *resource-manager*))))
   (setf (gethash name (materials *resource-manager*))
         (make-instance class :state state :defaults defaults
-                             :count-slot count-var)))
+                             :count-slot count-var
+                             :depth-state depth-state)))
 
 (defun ensure-material (name state &rest r
-                        &key defaults count-var class
+                        &key defaults count-var class (depth-state state)
                         &allow-other-keys)
   (declare (ignore defaults count-var class))
   (or
    (get-material name)
    (apply 'make-material name state r)))
 
-(defun bind-material (name)
+(defun bind-material (name &key depth-pass)
   (let ((m (get-material name)))
     ;; not sure if missing material should be an error here or not?
     ;; possibly should load some debug material instead, with option
@@ -111,8 +114,12 @@
       (when (3bgl-ssbo::dirty m)
         (update-material m))
       (3bgl-ssbo::bind-ssbo m +materials-binding+)
-      (scenegraph::apply-state (state m)
-                               (when (previous-material *resource-manager*)
-                                 (state
-                                  (previous-material *resource-manager*))))
+      (flet ((state* (x)
+               (if depth-pass
+                   (depth-state x)
+                   (state x))))
+        (scenegraph::apply-state (state* m)
+                                 (when (previous-material *resource-manager*)
+                                   (state*
+                                    (previous-material *resource-manager*)))))
       (setf (previous-material *resource-manager*) m))))

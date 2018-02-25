@@ -255,7 +255,13 @@
                             (sb-cga:matrix* mv (matrix n))
                             nm)))
 
-(defun draw-sg (sg mv)
+(defun draw-sg (sg mv &key depth-pass)
+  (when depth-pass
+    (setf (previous-material *resource-manager*) nil)
+    (mark *timing-helper* :id :draw-sg-depth-start)
+    (draw-node (root sg) :mv mv)
+    (submit-draws :depth-pass t)
+    (setf (previous-material *resource-manager*) nil))
   (mark *timing-helper* :id :draw-sg-start)
   (draw-node (root sg) :mv mv)
   (mark *timing-helper* :id :draw-sg-done)

@@ -115,6 +115,17 @@
     (setf (@ outs world-pos) (.xyz (* m pos)))
     (setf gl-position (* vp m pos))))
 
+(defun vertex-depth-only ()
+  (let* ((pos position)
+         (draw-id gl-draw-id)
+         (po (aref objects draw-id))
+         (m (@ po m)))
+    (setf (.w pos) 1.0)
+    (setf gl-position (* vp m pos))))
+
+(defun fragment-depth-only ()
+  (setf out-color (vec4 1 0 0 1)))
+
 (defstruct texture-samples
   (diffuse :vec4)
   (ambient :vec4)
@@ -335,6 +346,7 @@
     (return c)))
 
 (defun fragment ()
+  (declare (layout (:in nil :early-fragment-tests :early-fragment-tests)))
   (let ((mat (aref materials (clamp material-id 0 (1- count)))))
    (if (= (@ mat mat-shading-model) -1)
        (setf out-color (skybox-shader mat))

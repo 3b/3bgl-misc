@@ -42,8 +42,18 @@
 (defparameter *ai-material-defaults* '(:blend-func (:one :one-minus-src-alpha)
                                        :blend nil
                                        :depth-test t
+                                       :depth-func :lequal
                                        :cull-face :back
+                                       #+:depth-write-mask nil
+                                       :color-write-mask (t t t t)
                                        :texture-cube-map-seamless t))
+(defparameter *ai-material-defaults/depth* '(:blend nil
+                                             :depth-test t
+                                             :depth-func :lequal
+                                             :cull-face :back
+                                             :depth-write-mask t
+                                             :color-write-mask (nil nil nil nil)))
+(defparameter *ai-sampler-defaults* '(:max-anisotropy 16))
 
 (defun ai-material-name (blend format)
   (intern-material-name
@@ -96,16 +106,21 @@
       (list sg objects))))
 
 (defun expand-material (format material)
-  (let* ((state (scenegraph::make-state (list* :vertex-format
-                                               (mapcar 'cdr
-                                                       (alexandria:plist-alist
-                                                        format))
-                                               :sample-alpha-to-coverage
-                                               (getf material :blend)
-                                               *ai-material-defaults*)))
+  (let* ((state (scenegraph::make-state
+                 (list* :vertex-format (mapcar 'cdr
+                                               (alexandria:plist-alist format))
+                        :sample-alpha-to-coverage (getf material :blend)
+                        *ai-material-defaults*)))
+         (depth-state (scenegraph::make-state
+                       (list* :vertex-format (mapcar 'cdr
+                                                     (alexandria:plist-alist
+                                                      format))
+                              :sample-alpha-to-coverage (getf material :blend)
+                              *ai-material-defaults/depth*)))
          (name (ai-material-name (getf material :blend) format))
          (mat (ensure-material name state
-                               :count-var '3bgl-ai-shaders::count)))
+                               :count-var '3bgl-ai-shaders::count
+                               :depth-state depth-state)))
     (list name (intern-material mat (getf material :properties)))))
 
 (defun translate-ai-mesh (m skel materials)
@@ -355,8 +370,11 @@
                                     (get-handle (or (get-texture name)
                                                     (get-texture :debug
                                                                  :type :default))
-                                                (get-sampler 'ai-sampler
-                                                             :max-anisotropy 16)
+                                                (apply #'get-sampler
+                                                       (cons
+                                                        'ai-sampler
+                                                        *ai-sampler-defaults*)
+                                                       *ai-sampler-defaults*)
                                                 :resident t)))))
             when (eql name :warn)
               do (format t "using unsupported material parameter ~s = ~s~%"
@@ -470,6 +488,11 @@
   (let ((*ai-material-defaults*
           (list* :program (get-program :vertex '3bgl-ai-shaders::vertex
                                        :fragment '3bgl-ai-shaders::fragment)
+                 *ai-material-defaults*))
+        (*ai-material-defaults/depth*
+          (list* :program (get-program
+                           :vertex '3bgl-ai-shaders::vertex-depth-only
+                           :fragment '3bgl-ai-shaders::fragment-depth-only)
                  *ai-material-defaults*)))
     (let ((o (assimp:import-into-lisp
               (merge-pathnames name)

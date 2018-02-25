@@ -72,13 +72,13 @@
          ;; of space reasonably (and/or using space more efficiently)
          ;; (16MB is size of 2kx2kxRGBA texture without mipmaps
          ;; though, so possibly not worth worrying about optimizing)
-         (expt 2 24) :regions 3))
+         (expt 2 24) :regions 10))
   (setf (command-ssbo m)
         (3bgl-ssbo::make-persistent-mapped-buffer
          ;; 4MB x triple-buffered. enough for ~209k draws. should
          ;; reduce to match streaming-ssbo once there is a better idea
          ;; of size of per-object data. One command is (* 4 5) bytes
-         (expt 2 22) :regions 3)))
+         (expt 2 22) :regions 10)))
 
 (defun reset-resource-manager (manager)
   (reset-globals manager)
@@ -499,7 +499,7 @@
                                             count
                                             0))))))
 
-(defun submit-draws ()
+(defun submit-draws (&key depth-pass)
   (mark *timing-helper* :id :submit-draw-start)
   (setf *no* 0)
   (setf *draws* 0)
@@ -519,7 +519,7 @@
     for material = (if (typep mat-name 'material)
                        mat-name
                        (gethash mat-name (materials *resource-manager*)))
-    do (bind-material material)
+    do (bind-material material :depth-pass depth-pass)
        (loop
          for bs being the hash-keys of buffer-sets
            using (hash-value draws)
