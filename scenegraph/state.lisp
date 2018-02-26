@@ -529,7 +529,7 @@
   ;; input is T,NIL,list of 4 T/NIL list of lists of 4 T/NIL
   (when (atom value)
     (return (if value '(t t t t) '(nil nil nil nil))))
-  (if (every 'bool value)
+  (if (every 'atoms value)
       (progn
         (assert (= 4 (length value)))
         (mapcar 'bool value))
