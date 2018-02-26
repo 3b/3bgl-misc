@@ -444,21 +444,47 @@
           (list vao index-size vbo ibo))))))
 
 ;; fixme: move this to somewhere common (possibly cl-opengl?)
-(cffi:defcallback debug-callback :void ((source %gl:enum)
-                                        (type %gl:enum)
-                                        (severity %gl:enum)
+(cffi:defcallback debug-callback :void ((source %gl:uint)
+                                        (type %gl:uint)
+                                        (id %gl:uint)
+                                        (severity %gl:uint)
                                         (length %gl:sizei)
                                         (message :string)
                                         (user-param (:pointer :void)))
   (declare (ignorable source type severity length user-param))
-  (format t "~&GL Error: ~a~%" message))
+  (macrolet ((enum (prefix var)
+               (let* ((h (make-hash-table)))
+                 (loop for x in (cffi:foreign-enum-keyword-list '%gl:enum)
+                       for v = (cffi:foreign-enum-value '%gl:enum x)
+                       for old = (gethash v h)
+                       when (alexandria:starts-with-subseq (string prefix)
+                                                           (string x))
+                         do (when (or (not old)
+                                      (and old
+                                           (< (length (string x))
+                                              (length (string old)))))
+                              (setf (gethash v h) x)))
+                 `(setf ,var
+                        (case ,var
+                          ,@(loop
+                              for k being the hash-keys of h
+                                using (hash-value v)
+                              collect `(,k ,(intern (subseq (string v)
+                                                            (length
+                                                             (string prefix)))
+                                                    (find-package :keyword))))
+                          (t (cffi:foreign-enum-value '%gl:enum ,var)))))))
+    (enum :debug-source- source)
+    (enum :debug-type- type)
+    (enum :debug-severity- severity))
+  (format t "~&GLDebug##~s:~a:~a:~a: ~a~%" id source type severity message))
 
 (defmethod run-main-loop :before ((w basecode-vr))
   (%gl:debug-message-callback (cffi:get-callback 'debug-callback)
                               (cffi:null-pointer))
   (%gl:debug-message-control :dont-care :dont-care :dont-care
                              0 (cffi:null-pointer) t)
-  (gl:enable :debug-output-synchronous)
+  (gl:enable :debug-output :debug-output-synchronous)
 
   ;; create timer queries for autoscaling
   (setf (frame-time-queries w)
