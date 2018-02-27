@@ -247,6 +247,11 @@
         (setf (frame-size-current-scale w) s))
       (setf (frame-time-target w) 9.0)
       (setf (frame-time-target2 w) 10.0)
+
+      ;;
+      (update-hmd-matrix-pose w)
+
+      ;; draw scene from each eye
       (labels ((sf (x)
                  (* s x))
                (s (x)
@@ -294,9 +299,7 @@
                              '3b-openvr::v-max 1.0 )))))
 
   ;; swap, glfinish,etc
-  (glop:swap-buffers (basecode::%glop-window w))
-  ;;
-  (update-hmd-matrix-pose w))
+  (glop:swap-buffers (basecode::%glop-window w)))
 
 (defmethod update-hmd-matrix-pose ((w basecode-vr))
   (unless vr::*system*
