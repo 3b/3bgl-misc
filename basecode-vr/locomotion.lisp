@@ -36,12 +36,9 @@
              (sb-cga:rotate-around (sb-cga:vec 0.0 1.0 0.0)
                                    (3bgl-math::deg-to-rad (rot w)))))
          (v (sb-cga:transform-direction dir m)))
-    (format t "~s~%" v)
     (setf (aref v 0) (- (aref v 0)))
     (setf (aref v 1) 0.0)
-    (format t "~s~%" v)
     (setf v (sb-cga:vec* (sb-cga:normalize v) (float d 1.0)))
-    (format t "~s -> ~s~%" (pos w) (sb-cga:vec+ (pos w) v))
     (setf (pos w) (sb-cga:vec+ (pos w) v))))
 
 (defun get-button (data)
