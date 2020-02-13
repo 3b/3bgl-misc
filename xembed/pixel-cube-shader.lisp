@@ -1,7 +1,5 @@
 (cl:defpackage #:pixel-cube-shader
-  (:use :cl :3bgl-glsl)
-  (:shadowing-import-from #:3bgl-glsl
-                          #:defun #:defconstant #:defmacro)
+  (:use :3bgl-glsl/cl)
   (:export
    #:vertex
    #:geometry
