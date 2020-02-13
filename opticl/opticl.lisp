@@ -89,10 +89,10 @@
                           collect `(cffi:mem-aref p :unsigned-char
                                                   (+ ,i (* i ,c) (* j wx ,c)))))))
         (ecase c
-          (1 (expand-types (image 1-bit-gray-image 2-bit-gray-image
-                                  4-bit-gray-image 8-bit-gray-image)
-               (do-pixels% (j i wy) image
-                 (setf (v 1) (%pixel image j i))))
+          ((1 nil) (expand-types (image 1-bit-gray-image 2-bit-gray-image
+                                    4-bit-gray-image 8-bit-gray-image)
+                 (do-pixels% (j i wy) image
+                   (setf (v 1) (%pixel image j i))))
                  (funcall thunk p :luminance))
           (3 (expand-types (image 4-bit-rgb-image 8-bit-rgb-image)
                (do-pixels% (j i wy) image
